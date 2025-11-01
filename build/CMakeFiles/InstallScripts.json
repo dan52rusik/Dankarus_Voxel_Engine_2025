@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/MyGame/VoxelNoxel/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

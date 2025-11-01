@@ -1,0 +1,3 @@
+C:/MyGame/VoxelNoxel/build/CMakeFiles/VoxelNoxel.dir
+C:/MyGame/VoxelNoxel/build/CMakeFiles/edit_cache.dir
+C:/MyGame/VoxelNoxel/build/CMakeFiles/rebuild_cache.dir
