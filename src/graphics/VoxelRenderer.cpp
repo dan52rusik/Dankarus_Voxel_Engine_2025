@@ -4,6 +4,8 @@
 #include "../voxels/voxel.h"
 #include <glm/glm.hpp>
 #include <iostream>
+#include <cstdint>
+#include <cmath>
 
 #define VERTEX_SIZE (3 + 2 + 1)
 
@@ -19,48 +21,14 @@
 								  INDEX += VERTEX_SIZE;
 
 // Marching Cubes lookup tables
-const int EdgeVertexIndices[12][2] = {
-	{0, 1}, {1, 3}, {3, 2}, {2, 0},
-	{4, 5}, {5, 7}, {7, 6}, {6, 4},
-	{0, 4}, {1, 5}, {3, 7}, {2, 6}
+// Pairs of vertices for 12 edges in canonical order
+static const int EDGE2VERT[12][2] = {
+    {0,1},{1,2},{2,3},{3,0}, // bottom
+    {4,5},{5,6},{6,7},{7,4}, // top
+    {0,4},{1,5},{2,6},{3,7}  // vertical
 };
 
-const unsigned short EdgeMasks[256] = {
-	0x0, 0x109, 0x203, 0x30a, 0x80c, 0x905, 0xa0f, 0xb06,
-	0x406, 0x50f, 0x605, 0x70c, 0xc0a, 0xd03, 0xe09, 0xf00,
-	0x190, 0x99, 0x393, 0x29a, 0x99c, 0x895, 0xb9f, 0xa96,
-	0x596, 0x49f, 0x795, 0x69c, 0xd9a, 0xc93, 0xf99, 0xe90,
-	0x230, 0x339, 0x33, 0x13a, 0xa3c, 0xb35, 0x83f, 0x936,
-	0x636, 0x73f, 0x435, 0x53c, 0xe3a, 0xf33, 0xc39, 0xd30,
-	0x3a0, 0x2a9, 0x1a3, 0xaa, 0xbac, 0xaa5, 0x9af, 0x8a6,
-	0x7a6, 0x6af, 0x5a5, 0x4ac, 0xfaa, 0xea3, 0xda9, 0xca0,
-	0x8c0, 0x9c9, 0xac3, 0xbca, 0xcc, 0x1c5, 0x2cf, 0x3c6,
-	0xcc6, 0xdcf, 0xec5, 0xfcc, 0x4ca, 0x5c3, 0x6c9, 0x7c0,
-	0x950, 0x859, 0xb53, 0xa5a, 0x15c, 0x55, 0x35f, 0x256,
-	0xd56, 0xc5f, 0xf55, 0xe5c, 0x55a, 0x453, 0x759, 0x650,
-	0xaf0, 0xbf9, 0x8f3, 0x9fa, 0x2fc, 0x3f5, 0xff, 0x1f6,
-	0xef6, 0xfff, 0xcf5, 0xdfc, 0x6fa, 0x7f3, 0x4f9, 0x5f0,
-	0xb60, 0xa69, 0x963, 0x86a, 0x36c, 0x265, 0x16f, 0x66,
-	0xf66, 0xe6f, 0xd65, 0xc6c, 0x76a, 0x663, 0x569, 0x460,
-	0x460, 0x569, 0x663, 0x76a, 0xc6c, 0xd65, 0xe6f, 0xf66,
-	0x66, 0x16f, 0x265, 0x36c, 0x86a, 0x963, 0xa69, 0xb60,
-	0x5f0, 0x4f9, 0x7f3, 0x6fa, 0xdfc, 0xcf5, 0xfff, 0xef6,
-	0x1f6, 0xff, 0x3f5, 0x2fc, 0x9fa, 0x8f3, 0xbf9, 0xaf0,
-	0x650, 0x759, 0x453, 0x55a, 0xe5c, 0xf55, 0xc5f, 0xd56,
-	0x256, 0x35f, 0x55, 0x15c, 0xa5a, 0xb53, 0x859, 0x950,
-	0x7c0, 0x6c9, 0x5c3, 0x4ca, 0xfcc, 0xec5, 0xdcf, 0xcc6,
-	0x3c6, 0x2cf, 0x1c5, 0xcc, 0xbca, 0xac3, 0x9c9, 0x8c0,
-	0xca0, 0xda9, 0xea3, 0xfaa, 0x4ac, 0x5a5, 0x6af, 0x7a6,
-	0x8a6, 0x9af, 0xaa5, 0xbac, 0xaa, 0x1a3, 0x2a9, 0x3a0,
-	0xd30, 0xc39, 0xf33, 0xe3a, 0x53c, 0x435, 0x73f, 0x636,
-	0x936, 0x83f, 0xb35, 0xa3c, 0x13a, 0x33, 0x339, 0x230,
-	0xe90, 0xf99, 0xc93, 0xd9a, 0x69c, 0x795, 0x49f, 0x596,
-	0xa96, 0xb9f, 0x895, 0x99c, 0x29a, 0x393, 0x99, 0x190,
-	0xf00, 0xe09, 0xd03, 0xc0a, 0x70c, 0x605, 0x50f, 0x406,
-	0xb06, 0xa0f, 0x905, 0x80c, 0x30a, 0x203, 0x109, 0x0
-};
-
-const char TriangleTable[256][16] = {
+const int8_t TriangleTable[256][16] = {
 	{-1},
 	{0, 3, 8, -1},
 	{0, 9, 1, -1},
@@ -351,29 +319,41 @@ Mesh* VoxelRenderer::render(Chunk* chunk){
 				densities[6] = VOXEL(x+1, y+1, z+1).density;
 				densities[7] = VOXEL(x, y+1, z+1).density;
 
+				// Determine inside/outside for each corner
+				bool inside[8];
+				for (int c = 0; c < 8; ++c) inside[c] = (densities[c] <= 0.0f);
+
 				// Compute cube index
 				int cubeindex = 0;
 				for (int i = 0; i < 8; i++) {
-					if (densities[i] < 0) cubeindex |= (1 << i);
+					if (inside[i]) cubeindex |= (1 << i);
 				}
 
-				// If no triangles, skip
-				if (EdgeMasks[cubeindex] == 0) continue;
+				// Positions of 8 corners
+				glm::vec3 cornerPos[8] = {
+					{x,   y,   z  }, {x+1, y,   z  }, {x+1, y,   z+1}, {x,   y,   z+1},
+					{x,   y+1, z  }, {x+1, y+1, z  }, {x+1, y+1, z+1}, {x,   y+1, z+1}
+				};
 
-				// Interpolate vertices
+				// Determine which edges are used by the triangles
+				bool edgeUsed[12] = {false};
+				for (int i = 0; TriangleTable[cubeindex][i] != -1; i += 3) {
+					edgeUsed[TriangleTable[cubeindex][i+0]] = true;
+					edgeUsed[TriangleTable[cubeindex][i+1]] = true;
+					edgeUsed[TriangleTable[cubeindex][i+2]] = true;
+				}
+
+				// Interpolate vertices on used edges
 				glm::vec3 vertlist[12];
-				if (EdgeMasks[cubeindex] & 1) vertlist[0] = interpolate(glm::vec3(x, y, z), glm::vec3(x+1, y, z), densities[0], densities[1]);
-				if (EdgeMasks[cubeindex] & 2) vertlist[1] = interpolate(glm::vec3(x+1, y, z), glm::vec3(x+1, y, z+1), densities[1], densities[2]);
-				if (EdgeMasks[cubeindex] & 4) vertlist[2] = interpolate(glm::vec3(x, y, z+1), glm::vec3(x+1, y, z+1), densities[3], densities[2]);
-				if (EdgeMasks[cubeindex] & 8) vertlist[3] = interpolate(glm::vec3(x, y, z), glm::vec3(x, y, z+1), densities[0], densities[3]);
-				if (EdgeMasks[cubeindex] & 16) vertlist[4] = interpolate(glm::vec3(x, y+1, z), glm::vec3(x+1, y+1, z), densities[4], densities[5]);
-				if (EdgeMasks[cubeindex] & 32) vertlist[5] = interpolate(glm::vec3(x+1, y+1, z), glm::vec3(x+1, y+1, z+1), densities[5], densities[6]);
-				if (EdgeMasks[cubeindex] & 64) vertlist[6] = interpolate(glm::vec3(x, y+1, z+1), glm::vec3(x+1, y+1, z+1), densities[7], densities[6]);
-				if (EdgeMasks[cubeindex] & 128) vertlist[7] = interpolate(glm::vec3(x, y+1, z), glm::vec3(x, y+1, z+1), densities[4], densities[7]);
-				if (EdgeMasks[cubeindex] & 256) vertlist[8] = interpolate(glm::vec3(x, y, z), glm::vec3(x, y+1, z), densities[0], densities[4]);
-				if (EdgeMasks[cubeindex] & 512) vertlist[9] = interpolate(glm::vec3(x+1, y, z), glm::vec3(x+1, y+1, z), densities[1], densities[5]);
-				if (EdgeMasks[cubeindex] & 1024) vertlist[10] = interpolate(glm::vec3(x+1, y, z+1), glm::vec3(x+1, y+1, z+1), densities[2], densities[6]);
-				if (EdgeMasks[cubeindex] & 2048) vertlist[11] = interpolate(glm::vec3(x, y, z+1), glm::vec3(x, y+1, z+1), densities[3], densities[7]);
+				for (int e = 0; e < 12; ++e) {
+					if (!edgeUsed[e]) {
+						vertlist[e] = glm::vec3(NAN);
+						continue;
+					}
+					int a = EDGE2VERT[e][0];
+					int b = EDGE2VERT[e][1];
+					vertlist[e] = interpolate(cornerPos[a], cornerPos[b], densities[a], densities[b]);
+				}
 
 				// Add triangles
 				for (int i = 0; TriangleTable[cubeindex][i] != -1; i += 3) {
@@ -384,6 +364,9 @@ Mesh* VoxelRenderer::render(Chunk* chunk){
 					glm::vec3 v1 = vertlist[e1];
 					glm::vec3 v2 = vertlist[e2];
 					glm::vec3 v3 = vertlist[e3];
+
+					// Skip if any vertex is NaN (safety)
+					if (std::isnan(v1.x) || std::isnan(v2.x) || std::isnan(v3.x)) continue;
 
 					// Simple light based on y
 					float l = 0.5f + 0.5f * (v1.y + v2.y + v3.y) / 3.0f / CHUNK_H;

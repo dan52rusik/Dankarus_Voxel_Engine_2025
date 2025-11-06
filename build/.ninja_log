@@ -1,15 +1,15 @@
 # ninja log v7
 54	886	7841273279543308	CMakeFiles/VoxelNoxel.dir/src/voxels/voxel.cpp.obj	31e000722793ee6f
-26	1003	7841273279262968	CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj	e88e6305003eddd5
+28	182	7841301330172061	CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj	e88e6305003eddd5
 62	1026	7841273279623303	CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj	106d65fb14c1cc57
-50	1304	7841273279503292	CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj	3ba9c29cb9f5484d
+24	223	7841303377272258	CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj	3ba9c29cb9f5484d
 35	1451	7841273279353298	CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj	447b9b71b1a562d2
-16	740	7841275355106284	CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj	e8988d98985a27cb
+29	717	7841309015679428	CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj	e8988d98985a27cb
 43	1746	7841273279433305	CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj	4f4720cb5224fb1b
 65	1708	7841273279653297	CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj	5aff60b8d9d53760
 32	726	7841278721780148	CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj	9e2f4aa2a37c09aa
 31	3315	7841273279313301	CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj	1141f857f3839c3b
-27	947	7841278721739750	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	3a53b43a45b1da28
-947	1136	7841278730934763	bin/VoxelNoxel.exe	d698c1043071de58
-27	902	7841279387228180	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	3a53b43a45b1da28
-903	1089	7841279395985889	bin/VoxelNoxel.exe	d698c1043071de58
+37	983	7841301330262057	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	3a53b43a45b1da28
+718	912	7841309022571877	bin/VoxelNoxel.exe	d698c1043071de58
+29	715	7841312108705540	CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj	e8988d98985a27cb
+716	909	7841312115569206	bin/VoxelNoxel.exe	d698c1043071de58
