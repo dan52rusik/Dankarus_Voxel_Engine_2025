@@ -62,17 +62,17 @@ int main() {
 	VoxelRenderer renderer(1024 * 1024 * 8);
 	Chunk* chunk = new Chunk();
 	Mesh* mesh = renderer.render(chunk);
-	glClearColor(0.6f, 0.62f, 0.65f, 1);
+	glClearColor(0.0f, 0.0f, 0.0f, 1);
 
 	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
+	// glEnable(GL_CULL_FACE);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	Camera* camera = new Camera(vec3(0, 0, 20), radians(90.0f));
+	Camera* camera = new Camera(vec3(0, 0, -30), radians(90.0f));
 
 	mat4 model(1.0f);
-	model = translate(model, vec3(0.5f, 0, 0));
+	// model = translate(model, vec3(0.5f, 0, 0));
 
 	float lastTime = glfwGetTime();
 	float delta = 0.0f;
@@ -101,14 +101,14 @@ int main() {
 			camera->position -= camera->front * delta * speed;
 		}
 		if (Events::pressed(GLFW_KEY_D)) {
-			camera->position += camera->right * delta * speed;
+			camera->position -= camera->right * delta * speed;
 		}
 		if (Events::pressed(GLFW_KEY_A)) {
-			camera->position -= camera->right * delta * speed;
+			camera->position += camera->right * delta * speed;
 		}
 
 		if (Events::_cursor_locked) {
-			camY += -Events::deltaY / Window::height * 2;
+			camY += Events::deltaY / Window::height * 2;
 			camX += -Events::deltaX / Window::height * 2;
 
 			if (camY < -radians(89.0f)) {
