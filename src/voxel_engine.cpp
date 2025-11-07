@@ -269,10 +269,10 @@ int main() {
 				camera->position -= camera->front * delta * speed;
 			}
 			if (Events::pressed(GLFW_KEY_D)) {
-				camera->position += camera->right * delta * speed;
+				camera->position -= camera->right * delta * speed;
 			}
 			if (Events::pressed(GLFW_KEY_A)) {
-				camera->position -= camera->right * delta * speed;
+				camera->position += camera->right * delta * speed;
 			}
 
 			if (Events::_cursor_locked) {

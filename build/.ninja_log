@@ -10,14 +10,14 @@
 26	848	7842181733101976	CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj	d26d9d24ccc66332
 28	1010	7842232609047667	CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj	5ba1503ce300a46c
 85	1800	7842480366391510	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	2e5e0aaaa4623a9
-1901	2226	7842480384568744	bin/VoxelNoxel.exe	35281a91058ca93d
+1006	1271	7842482520528542	bin/VoxelNoxel.exe	35281a91058ca93d
 47	525	7842064269900733	CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj	a17cccbd37d5bcf1
 49	1195	7842480366034348	CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj	ed6812373708c2c9
 97	1246	7842480366521506	CMakeFiles/VoxelNoxel.dir/src/voxels/MCChunk.cpp.obj	10fec85a55be62ae
 91	1901	7842480366461503	CMakeFiles/VoxelNoxel.dir/src/voxels/ChunkManager.cpp.obj	aae6599f34e99cd1
 104	1408	7842480366593284	CMakeFiles/VoxelNoxel.dir/src/voxels/WorldSave.cpp.obj	65224b72ba0d7966
-34	1522	7842480365894310	CMakeFiles/VoxelNoxel.dir/src/frontend/Menu.cpp.obj	a312d73c2a035e20
-44	1382	7842480365994381	CMakeFiles/VoxelNoxel.dir/src/graphics/Font.cpp.obj	78af326dc719d3a0
+24	1005	7842482510720630	CMakeFiles/VoxelNoxel.dir/src/frontend/Menu.cpp.obj	a312d73c2a035e20
+30	974	7842481560320580	CMakeFiles/VoxelNoxel.dir/src/graphics/Font.cpp.obj	78af326dc719d3a0
 39	1277	7842480365944314	CMakeFiles/VoxelNoxel.dir/src/graphics/Batch2D.cpp.obj	a4490a6e6b515096
 65	194	7842467113518549	CMakeFiles/VoxelNoxel.dir/src/graphics/ImageData.cpp.obj	6f9da5238d9befa
 43	644	7842467113296111	CMakeFiles/VoxelNoxel.dir/src/files/files.cpp.obj	7d602c7f6cbacaf9
@@ -26,6 +26,5 @@
 33	749	7842467537753399	CMakeFiles/VoxelNoxel.dir/src/coders/commons.cpp.obj	f9d72a853a5d4c63
 47	1230	7842467537889296	CMakeFiles/VoxelNoxel.dir/src/coders/toml.cpp.obj	d40baacb95ccea5
 61	1020	7842480366156407	CMakeFiles/VoxelNoxel.dir/src/graphics/Sprite.cpp.obj	68d218c3d2262319
-30	974	7842481560320580	CMakeFiles/VoxelNoxel.dir/src/graphics/Font.cpp.obj	78af326dc719d3a0
-25	1150	7842481560260867	CMakeFiles/VoxelNoxel.dir/src/frontend/Menu.cpp.obj	a312d73c2a035e20
-1150	1466	7842481571518477	bin/VoxelNoxel.exe	35281a91058ca93d
+27	1222	7842483176596116	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	2e5e0aaaa4623a9
+1223	1510	7842483188555367	bin/VoxelNoxel.exe	35281a91058ca93d
