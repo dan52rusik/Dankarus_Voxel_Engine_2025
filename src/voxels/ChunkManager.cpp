@@ -135,19 +135,39 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 	
 	auto it = chunks.find(key);
 	if (it == chunks.end()) {
+		std::cout << "[DEBUG] Chunk not found for world coords (" << x << ", " << y << ", " << z 
+		          << ") chunk coords (" << chunkPos.x << ", " << chunkPos.y << ", " << chunkPos.z << ")" << std::endl;
 		return;
 	}
 	
 	MCChunk* chunk = it->second;
+	
+	// Вычисляем локальные координаты правильно
 	int lx = x - chunkPos.x * MCChunk::CHUNK_SIZE_X;
 	int ly = y - chunkPos.y * MCChunk::CHUNK_SIZE_Y;
 	int lz = z - chunkPos.z * MCChunk::CHUNK_SIZE_Z;
 	
 	// Корректировка для отрицательных координат
-	if (x < 0) lx = MCChunk::CHUNK_SIZE_X + lx;
-	if (y < 0) ly = MCChunk::CHUNK_SIZE_Y + ly;
-	if (z < 0) lz = MCChunk::CHUNK_SIZE_Z + lz;
+	if (x < 0) {
+		// Для отрицательных координат нужно правильно вычислить локальную позицию
+		lx = ((x % MCChunk::CHUNK_SIZE_X) + MCChunk::CHUNK_SIZE_X) % MCChunk::CHUNK_SIZE_X;
+	}
+	if (y < 0) {
+		ly = ((y % MCChunk::CHUNK_SIZE_Y) + MCChunk::CHUNK_SIZE_Y) % MCChunk::CHUNK_SIZE_Y;
+	}
+	if (z < 0) {
+		lz = ((z % MCChunk::CHUNK_SIZE_Z) + MCChunk::CHUNK_SIZE_Z) % MCChunk::CHUNK_SIZE_Z;
+	}
 	
+	// Проверяем границы
+	if (lx < 0 || lx >= MCChunk::CHUNK_SIZE_X || 
+	    ly < 0 || ly >= MCChunk::CHUNK_SIZE_Y || 
+	    lz < 0 || lz >= MCChunk::CHUNK_SIZE_Z) {
+		std::cout << "[DEBUG] Local coords out of bounds: world(" << x << ", " << y << ", " << z 
+		          << ") chunk(" << chunkPos.x << ", " << chunkPos.y << ", " << chunkPos.z 
+		          << ") local(" << lx << ", " << ly << ", " << lz << ")" << std::endl;
+		return;
+	}
 	
 	chunk->setVoxel(lx, ly, lz, id);
 	
