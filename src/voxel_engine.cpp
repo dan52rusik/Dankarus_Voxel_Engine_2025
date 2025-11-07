@@ -1,6 +1,5 @@
 #include <iostream>
 
-#define GLEW_STATIC
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -52,21 +51,21 @@ int main() {
 	Window::initialize(WIDTH, HEIGHT, "Window 2.0");
 	Events::initialize();
 
-	Shader* shader = load_shader("res/mc_vert.glsl", "res/mc_frag.glsl");
+	Shader* shader = load_shader("res/shaders/mc_vert.glsl", "res/shaders/mc_frag.glsl");
 	if (shader == nullptr) {
 		std::cerr << "failed to load shader" << std::endl;
 		Window::terminate();
 		return 1;
 	}
 	
-	Shader* voxelShader = load_shader("res/voxel_vert.glsl", "res/voxel_frag.glsl");
+	Shader* voxelShader = load_shader("res/shaders/voxel_vert.glsl", "res/shaders/voxel_frag.glsl");
 	if (voxelShader == nullptr) {
 		std::cerr << "failed to load voxel shader" << std::endl;
 		Window::terminate();
 		return 1;
 	}
 	
-	Texture* texture = load_texture("res/block.png");
+	Texture* texture = load_texture("res/textures/blocks/stone.png");
 	if (texture == nullptr) {
 		std::cerr << "failed to load texture" << std::endl;
 		Window::terminate();
@@ -74,17 +73,30 @@ int main() {
 	}
 	
 	// Загружаем UI шейдер
-	Shader* uiShader = load_shader("res/ui.glslv", "res/ui.glslf");
+	Shader* uiShader = load_shader("res/shaders/ui.glslv", "res/shaders/ui.glslf");
 	if (uiShader == nullptr) {
 		std::cerr << "failed to load UI shader" << std::endl;
 		Window::terminate();
 		return 1;
 	}
+	// Устанавливаем текстурный юнит для UI шейдера (GL_TEXTURE0)
+	uiShader->use();
+	uiShader->uniform1i("u_texture", 0);
+	glActiveTexture(GL_TEXTURE0);
+
+	// Проверяем, что локации uniform'ов существуют
+	GLint loc_useTex = glGetUniformLocation(uiShader->id, "u_useTex");
+	GLint loc_texture = glGetUniformLocation(uiShader->id, "u_texture");
+	std::cout << "[UI] loc u_useTex = " << loc_useTex << std::endl;
+	std::cout << "[UI] loc u_texture = " << loc_texture << std::endl;
+	if (loc_useTex == -1 || loc_texture == -1) {
+		std::cerr << "[UI] WARNING: Some uniform locations are -1 (optimized out or name mismatch)" << std::endl;
+	}
 	
 	// Загружаем шрифт
 	std::vector<Texture*> fontPages;
 	for (int i = 0; i <= 4; i++) {
-		std::string fontFile = "res/font_" + std::to_string(i) + ".png";
+		std::string fontFile = "res/fonts/font_" + std::to_string(i) + ".png";
 		Texture* fontPage = load_texture(fontFile);
 		if (fontPage == nullptr) {
 			std::cerr << "failed to load font page " << i << std::endl;
@@ -93,6 +105,17 @@ int main() {
 		}
 		fontPages.push_back(fontPage);
 	}
+	
+	// Настраиваем фильтры для пиксельного (Minecraft) шрифта
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	for (auto* t : fontPages) {
+		t->bind();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	}
+	
 	Font* font = new Font(fontPages, fontPages[0]->height / 16);
 	
 	// Создаем Batch2D для UI
@@ -193,8 +216,13 @@ int main() {
 				
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 				glEnable(GL_BLEND);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 				glDisable(GL_DEPTH_TEST);
+				
+				// Гарантируем нужный текстурный юнит перед UI-рендером
+				glActiveTexture(GL_TEXTURE0);
+				uiShader->use();
+				uiShader->uniform1i("u_useTex", 0); // панели по умолчанию
 				
 				menu.draw(batch, font, uiShader, Window::width, Window::height);
 				
@@ -414,8 +442,13 @@ int main() {
 		// Отрисовываем меню паузы поверх мира
 		if (currentState == GameState::PAUSED) {
 			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			glDisable(GL_DEPTH_TEST);
+			
+			// Гарантируем нужный текстурный юнит перед UI-рендером
+			glActiveTexture(GL_TEXTURE0);
+			uiShader->use();
+			uiShader->uniform1i("u_useTex", 0); // панели по умолчанию
 			
 			menu.draw(batch, font, uiShader, Window::width, Window::height);
 			

@@ -4,6 +4,8 @@
 #include "../graphics/Batch2D.h"
 #include "../graphics/Font.h"
 #include "../graphics/Shader.h"
+#include "../graphics/Texture.h"
+#include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -128,45 +130,107 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	mat4 proj = ortho(0.0f, (float)fbWidth, (float)fbHeight, 0.0f, -1.0f, 1.0f);
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
-	shader->uniform1i("u_useTex", 0); // по умолчанию панели — без текстуры
 	
+	// PASS 1: Панели (u_useTex = 0)
+	shader->uniform1i("u_useTex", 0);
 	batch->begin();
 	
 	// Затемняем фон (виньетка)
 	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.35f));
 	
-	// Заголовок
-	const std::wstring title = L"Voxel Noxel";
-	int tW = font->calcWidth(title);
-	int tX = (fbWidth - tW) / 2;
-	int tY = fbHeight / 5; // повыше центра
-	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
-	batch->color = style.textColor;
-	font->draw(batch, title, tX, tY, STYLE_SHADOW);
-	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
-	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
-	
-	// Пункты как в Minecraft (используем ASCII для совместимости)
+	// Пункты как в Minecraft (только панели, без текста)
 	std::vector<std::wstring> items = {
-		L"Single Player",
-		L"Settings",
-		L"Quit Game"
+		L"Один игрок",
+		L"Настройки",
+		L"Выход"
 	};
 	
 	int w = style.buttonW;
 	int h = style.buttonH;
 	int x = (fbWidth - w) / 2;
+	int tY = (int)(fbHeight / 5);
 	int y0 = tY + 80;
 	
 	for (size_t i = 0; i < items.size(); ++i) {
 		int y = y0 + (int)i * (h + style.buttonGap);
 		bool isSel = (int)i == selectedItem;
-		drawButton(batch, font, shader, items[i], x, y, w, h, isSel);
+		// Рисуем только панель кнопки (без текста)
+		glm::vec4 body   = isSel ? style.panelHover : style.panelColor;
+		glm::vec4 light  = isSel ? style.bevelDark  : style.bevelLight;
+		glm::vec4 dark   = isSel ? style.bevelLight : style.bevelDark;
+		drawBevelRect(batch, shader, (float)x, (float)y, (float)w, (float)h, body, light, dark);
 	}
 	
-	// Убеждаемся, что флаг установлен правильно перед рендерингом
-	shader->uniform1i("u_useTex", 0); // панели без текстуры
 	batch->render();
+	
+	// PASS 2: Текст (u_useTex = 1)
+	// Font::draw теперь сам управляет batch->begin() и batch->render() для каждой страницы
+	shader->uniform1i("u_useTex", 1);
+	glActiveTexture(GL_TEXTURE0);
+	shader->uniform1i("u_texture", 0);
+	
+	// --- временно для диагностики ---
+	// Тест: показываем весь атлас целиком (0..1)
+	// ВАЖНО: делаем это ПЕРЕД текстом, чтобы убедиться, что текстура работает
+	bool blendWasEnabled = glIsEnabled(GL_BLEND);
+	glDisable(GL_BLEND);
+	
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	shader->uniform1i("u_useTex", 1);
+	shader->uniform1i("u_texture", 0);
+	glActiveTexture(GL_TEXTURE0);
+	
+	batch->begin();
+	if (font->pages.size() > 0 && font->pages[0] != nullptr) {
+		// ШАГ B: Диагностика - красная рамка вокруг тестового квадрата атласа
+		shader->uniform1i("u_useTex", 0); // панели (без текстуры)
+		batch->color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // красная рамка
+		batch->rect(30.0f, 30.0f, 256.0f, 1.0f);      // верх
+		batch->rect(30.0f, 30.0f, 1.0f, 256.0f);     // лев
+		batch->rect(30.0f, 285.0f, 256.0f, 1.0f);    // низ
+		batch->rect(285.0f, 30.0f, 1.0f, 256.0f);   // прав
+		
+		shader->uniform1i("u_useTex", 1); // обратно к «тексту»
+		batch->texture(font->pages[0]);
+		batch->color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+		// rect(x, y, w, h, u, v, tx, ty, r, g, b, a)
+		// Показываем весь атлас 0..1 в левом верхнем углу
+		batch->rect(30.0f, 30.0f, 256.0f, 256.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+		batch->render();
+	}
+	
+	if (blendWasEnabled) {
+		glEnable(GL_BLEND);
+	}
+	// --- конец диагностики ---
+	
+	// Заголовок (округляем до целых для четкости)
+	const std::wstring title = L"Voxel Noxel";
+	int tW = font->calcWidth(title);
+	int tX = (int)((fbWidth - tW) / 2);
+	batch->color = style.textColor;
+	// ВАЖНО: устанавливаем проекцию перед каждым вызовом font->draw()
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	font->draw(batch, shader, title, tX, tY, STYLE_SHADOW);
+	
+	// Текст на кнопках
+	for (size_t i = 0; i < items.size(); ++i) {
+		int y = y0 + (int)i * (h + style.buttonGap);
+		int tw = font->calcWidth(items[i]);
+		int th = font->lineHeight();
+		int tx = (int)(x + (w - tw) / 2);
+		int ty = (int)(y + (h - th) / 2 + 1);
+		
+		// Текст (убрали диагностические прямоугольники)
+		// ВАЖНО: устанавливаем проекцию перед каждым вызовом font->draw()
+		shader->use();
+		shader->uniformMatrix("u_projview", proj);
+		shader->uniform1i("u_useTex", 1);
+		batch->color = style.textColor;
+		font->draw(batch, shader, items[i], tx, ty, STYLE_SHADOW);
+	}
 }
 
 void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
@@ -178,68 +242,86 @@ void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowW
 	mat4 proj = ortho(0.0f, (float)fbWidth, (float)fbHeight, 0.0f, -1.0f, 1.0f);
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
-	shader->uniform1i("u_useTex", 0); // по умолчанию панели — без текстуры
 	
+	// PASS 1: Панели (u_useTex = 0)
+	shader->uniform1i("u_useTex", 0);
 	batch->begin();
 	
 	// Затемняем фон (виньетка)
 	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.45f));
 	
-	// Заголовок
-	const std::wstring title = L"Game Menu";
-	int tW = font->calcWidth(title);
-	int tX = (fbWidth - tW) / 2;
-	int tY = fbHeight / 5;
-	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
-	batch->color = style.textColor;
-	font->draw(batch, title, tX, tY, STYLE_SHADOW);
-	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
-	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
-	
-	// Пункты как в Minecraft (используем ASCII для совместимости)
+	// Пункты как в Minecraft (только панели, без текста)
 	std::vector<std::wstring> items = {
-		L"Back to Game",
-		L"Settings",
-		L"Main Menu"
+		L"Вернуться в игру",
+		L"Настройки",
+		L"Главное меню"
 	};
 	
 	int w = style.buttonW;
 	int h = style.buttonH;
 	int x = (fbWidth - w) / 2;
+	int tY = (int)(fbHeight / 5);
 	int y0 = tY + 80;
 	
 	for (size_t i = 0; i < items.size(); ++i) {
 		int y = y0 + (int)i * (h + style.buttonGap);
 		bool isSel = (int)i == selectedItem;
-		drawButton(batch, font, shader, items[i], x, y, w, h, isSel);
+		// Рисуем только панель кнопки (без текста)
+		glm::vec4 body   = isSel ? style.panelHover : style.panelColor;
+		glm::vec4 light  = isSel ? style.bevelDark  : style.bevelLight;
+		glm::vec4 dark   = isSel ? style.bevelLight : style.bevelDark;
+		drawBevelRect(batch, shader, (float)x, (float)y, (float)w, (float)h, body, light, dark);
 	}
 	
-	// Убеждаемся, что флаг установлен правильно перед рендерингом
-	shader->uniform1i("u_useTex", 0); // панели без текстуры
 	batch->render();
+	
+	// PASS 2: Текст (u_useTex = 1)
+	// Font::draw теперь сам управляет batch->begin() и batch->render() для каждой страницы
+	shader->uniform1i("u_useTex", 1);
+	shader->uniform1i("u_maskChannel", 2); // МАКСИМУМ (используем максимальное значение из всех каналов)
+	glActiveTexture(GL_TEXTURE0);
+	shader->uniform1i("u_texture", 0);
+	
+	// Заголовок (округляем до целых для четкости)
+	const std::wstring title = L"Пауза";
+	int tW = font->calcWidth(title);
+	int tX = (int)((fbWidth - tW) / 2);
+	batch->color = style.textColor;
+	font->draw(batch, shader, title, tX, tY, STYLE_SHADOW);
+	
+	// Текст на кнопках
+	for (size_t i = 0; i < items.size(); ++i) {
+		int y = y0 + (int)i * (h + style.buttonGap);
+		int tw = font->calcWidth(items[i]);
+		int th = font->lineHeight();
+		int tx = (int)(x + (w - tw) / 2);
+		int ty = (int)(y + (h - th) / 2 + 1);
+		batch->color = style.textColor;
+		font->draw(batch, shader, items[i], tx, ty, STYLE_SHADOW);
+	}
 }
 
 void Menu::drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text,
                       int x, int y, int w, int h, bool selected) {
+	// Панели
+	shader->uniform1i("u_useTex", 0);
 	glm::vec4 body   = selected ? style.panelHover : style.panelColor;
 	glm::vec4 light  = selected ? style.bevelDark  : style.bevelLight; // инверсия фаски при hover
 	glm::vec4 dark   = selected ? style.bevelLight : style.bevelDark;
 
 	drawBevelRect(batch, shader, (float)x, (float)y, (float)w, (float)h, body, light, dark);
 
-	// Текст по центру с пиксельной тенью
+	// Текст по центру с пиксельной тенью (округляем до целых для четкости)
 	int tw = font->calcWidth(text);
 	int th = font->lineHeight();
-	int tx = x + (w - tw) / 2;
-	int ty = y + (h - th) / 2 + 1;
+	int tx = (int)(x + (w - tw) / 2);
+	int ty = (int)(y + (h - th) / 2 + 1);
 
 	// Minecraft-like shadow (STYLE_SHADOW)
-	// Включаем текстуру для текста
-	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
+	shader->uniform1i("u_useTex", 1);
 	batch->color = style.textColor;
-	font->draw(batch, text, tx, ty, STYLE_SHADOW);
-	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
-	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
+	font->draw(batch, shader, text, tx, ty, STYLE_SHADOW);
+	// Можно ничего не сбрасывать — следующий вызов сам выставит нужный флаг
 }
 
 void Menu::setState(GameState state) {

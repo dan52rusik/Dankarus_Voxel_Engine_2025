@@ -27,8 +27,10 @@ void Shader::uniformMatrix(std::string name, glm::mat4 matrix){
 }
 
 void Shader::uniform1i(std::string name, int value){
-	GLuint location = glGetUniformLocation(id, name.c_str());
-	glUniform1i(location, value);
+	GLint location = glGetUniformLocation(id, name.c_str());
+	if (location != -1) {
+		glUniform1i(location, value);
+	}
 }
 
 

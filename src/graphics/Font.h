@@ -6,6 +6,7 @@
 
 class Texture;
 class Batch2D;
+class Shader;
 
 #define STYLE_NONE 0
 #define STYLE_SHADOW 1
@@ -23,6 +24,7 @@ public:
 	bool isPrintableChar(int c);
 	void draw(Batch2D* batch, std::wstring text, int x, int y);
 	void draw(Batch2D* batch, std::wstring text, int x, int y, int style);
+	void draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y, int style);
 };
 
 #endif /* GRAPHICS_FONT_H_ */

@@ -218,7 +218,9 @@ void Batch2D::rect(float x, float y, float w, float h,
 void Batch2D::sprite(float x, float y, float w, float h, int atlasRes, int index, vec4 tint){
 	float scale = 1.0f / (float)atlasRes;
 	float u = (index % atlasRes) * scale;
-	float v = 1.0f - ((index / atlasRes) * scale) - scale;
+	// ВАЖНО: PNG-лоадер уже делает вертикальный флип (row_pointers[t_height - 1 - i]),
+	// поэтому двойной флип = обратно вверх ногами. Убираем инверсию V.
+	float v = (index / atlasRes) * scale; // без 1.0 - ... - scale
 	rect(x, y, w, h, u, v, scale, scale, tint.r, tint.g, tint.b, tint.a);
 }
 
