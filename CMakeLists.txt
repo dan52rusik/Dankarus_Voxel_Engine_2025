@@ -53,6 +53,7 @@ endif()
 
 # Инклуды
 target_include_directories(VoxelNoxel PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
     ${GLEW_INCLUDE_DIR}
     ${GLFW3_INCLUDE_DIRS}
 )

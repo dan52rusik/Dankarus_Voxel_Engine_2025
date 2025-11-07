@@ -13,8 +13,8 @@ using namespace glm;
 
 #include "graphics/Shader.h"
 #include "graphics/Mesh.h"
-#include "graphics/MarchingCubes.h"
-#include "noise/OpenSimplex.h"
+#include "voxels/ChunkManager.h"
+#include "voxels/MCChunk.h"
 #include "window/Window.h"
 #include "window/Events.h"
 #include "window/Camera.h"
@@ -49,41 +49,29 @@ int main() {
 		return 1;
 	}
 
-	// Build scalar field via OpenSimplex FBM and extract isosurface via Marching Cubes
-	const int NX = 32, NY = 32, NZ = 32; // cell counts
-	const int SX = NX + 1, SY = NY + 1, SZ = NZ + 1; // grid nodes
-	std::vector<float> field;
-	field.resize(SX * SY * SZ);
-
-	OpenSimplex3D noise(1337);
-	const float baseFreq = 0.05f;
-	const int octaves = 6;
+	// Создаем менеджер чанков для генерации ландшафта
+	ChunkManager chunkManager;
+	
+	// Параметры генерации
+	const float baseFreq = 0.03f; // Меньшая частота для более плавных холмов
+	const int octaves = 4; // Меньше октав для более ровной поверхности
 	const float lacunarity = 2.0f;
 	const float gain = 0.5f;
-	const float seaLevel = 16.0f;
-	const float verticalScale = 32.0f;
-
-	for (int y = 0; y < SY; y++) {
-		for (int z = 0; z < SZ; z++) {
-			for (int x = 0; x < SX; x++) {
-				float wx = (float)x;
-				float wy = (float)y;
-				float wz = (float)z;
-				float n = noise.fbm(wx * baseFreq, wy * baseFreq, wz * baseFreq, octaves, lacunarity, gain);
-				float density = n - (wy - seaLevel) / verticalScale;
-				field[(y * SZ + z) * SX + x] = density;
-			}
-		}
-	}
-
-	Mesh* mesh = buildIsoSurface(field.data(), NX, NY, NZ, 0.0f);
+	const float baseHeight = 12.0f; // Базовая высота поверхности
+	const float heightVariation = 4.0f; // Вариация высоты холмов
+	
+	chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	
+	// Радиус загрузки чанков вокруг камеры
+	const int renderDistance = 3;
 	glClearColor(0.6f, 0.8f, 1.0f, 1.0f); // Небесный бело-голубой фон
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
 
-	Camera* camera = new Camera(vec3(16, 16, 50), radians(90.0f));
+	// Камера выше для обзора ландшафта
+	Camera* camera = new Camera(vec3(0.0f, baseHeight + 8.0f, 20.0f), radians(90.0f));
 
 	mat4 model(1.0f);
 	// model = translate(model, vec3(0.5f, 0, 0));
@@ -138,17 +126,33 @@ int main() {
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		// Draw VAO
+		// Обновляем чанки вокруг камеры
+		chunkManager.update(camera->position, renderDistance);
+		
+		// Отрисовываем все видимые чанки
 		shader->use();
-		shader->uniformMatrix("model", model);
 		shader->uniformMatrix("projview", camera->getProjection() * camera->getView());
-		mesh->draw(GL_TRIANGLES);
+		
+		std::vector<MCChunk*> visibleChunks = chunkManager.getVisibleChunks();
+		for (MCChunk* chunk : visibleChunks) {
+			if (chunk->mesh != nullptr) {
+				// Вычисляем матрицу модели для позиционирования чанка в мире
+				// worldPos - это центр чанка, но меш генерируется от (0,0,0), поэтому сдвигаем
+				mat4 chunkModel = translate(model, chunk->worldPos - vec3(
+					MCChunk::CHUNK_SIZE_X / 2.0f,
+					MCChunk::CHUNK_SIZE_Y / 2.0f,
+					MCChunk::CHUNK_SIZE_Z / 2.0f
+				));
+				shader->uniformMatrix("model", chunkModel);
+				chunk->mesh->draw(GL_TRIANGLES);
+			}
+		}
+		
 		Window::swapBuffers();
 		Events::pullEvents();
 	}
 
 	delete shader;
-	delete mesh;
 
 	Window::terminate();
 	return 0;
