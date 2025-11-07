@@ -9,6 +9,7 @@ public:
 	int width;
 	int height;
 	Texture(unsigned int id, int width, int height);
+	Texture(unsigned char* data, int width, int height, unsigned int format);
 	~Texture();
 
 	void bind();

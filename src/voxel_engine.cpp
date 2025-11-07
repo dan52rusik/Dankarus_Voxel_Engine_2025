@@ -15,6 +15,8 @@ using namespace glm;
 #include "graphics/Mesh.h"
 #include "graphics/Texture.h"
 #include "graphics/VoxelRenderer.h"
+#include "graphics/Batch2D.h"
+#include "graphics/Font.h"
 #include "loaders/png_loading.h"
 #include "voxels/ChunkManager.h"
 #include "voxels/MCChunk.h"
@@ -70,6 +72,31 @@ int main() {
 		Window::terminate();
 		return 1;
 	}
+	
+	// Загружаем UI шейдер
+	Shader* uiShader = load_shader("res/ui.glslv", "res/ui.glslf");
+	if (uiShader == nullptr) {
+		std::cerr << "failed to load UI shader" << std::endl;
+		Window::terminate();
+		return 1;
+	}
+	
+	// Загружаем шрифт
+	std::vector<Texture*> fontPages;
+	for (int i = 0; i <= 4; i++) {
+		std::string fontFile = "res/font_" + std::to_string(i) + ".png";
+		Texture* fontPage = load_texture(fontFile);
+		if (fontPage == nullptr) {
+			std::cerr << "failed to load font page " << i << std::endl;
+			Window::terminate();
+			return 1;
+		}
+		fontPages.push_back(fontPage);
+	}
+	Font* font = new Font(fontPages, fontPages[0]->height / 16);
+	
+	// Создаем Batch2D для UI
+	Batch2D* batch = new Batch2D(1024);
 	
 	VoxelRenderer voxelRenderer(1024 * 1024 * 8);
 
@@ -156,13 +183,20 @@ int main() {
 		// Если игра на паузе или в меню, не обрабатываем игровой ввод
 		bool inputLocked = (currentState == GameState::MENU || currentState == GameState::PAUSED);
 		
-		// Отрисовываем меню, если оно активно
-		if (currentState == GameState::MENU || currentState == GameState::PAUSED) {
-			menu.draw();
-		}
-		
 		// Если игра не инициализирована или в меню, пропускаем игровой цикл
 		if (!worldInitialized || currentState == GameState::MENU) {
+			// Отрисовываем только меню
+			if (currentState == GameState::MENU) {
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glDisable(GL_DEPTH_TEST);
+				
+				menu.draw(batch, font, uiShader, Window::width, Window::height);
+				
+				glDisable(GL_BLEND);
+				glEnable(GL_DEPTH_TEST);
+			}
 			Window::swapBuffers();
 			Events::pullEvents();
 			continue;
@@ -312,25 +346,6 @@ int main() {
 		}
 		}
 		
-		// Если игра на паузе, не обновляем и не отрисовываем мир
-		if (currentState == GameState::PAUSED) {
-			// Отрисовываем полупрозрачный фон для паузы
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glDisable(GL_DEPTH_TEST);
-			
-			// Простой полупрозрачный фон (пока без GUI системы)
-			// В будущем можно добавить полноценное меню паузы
-			
-			glDisable(GL_BLEND);
-			glEnable(GL_DEPTH_TEST);
-			
-			Window::swapBuffers();
-			Events::pullEvents();
-			continue;
-		}
-
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// Обновляем чанки вокруг камеры
@@ -392,6 +407,18 @@ int main() {
 			}
 		}
 		
+		// Отрисовываем меню паузы поверх мира
+		if (currentState == GameState::PAUSED) {
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDisable(GL_DEPTH_TEST);
+			
+			menu.draw(batch, font, uiShader, Window::width, Window::height);
+			
+			glDisable(GL_BLEND);
+			glEnable(GL_DEPTH_TEST);
+		}
+		
 		Window::swapBuffers();
 		Events::pullEvents();
 	}
@@ -405,7 +432,10 @@ int main() {
 	
 	delete shader;
 	delete voxelShader;
+	delete uiShader;
 	delete texture;
+	delete font;
+	delete batch;
 
 	Window::terminate();
 	return 0;

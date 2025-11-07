@@ -1,8 +1,17 @@
 #include "Menu.h"
 #include "../window/Window.h"
 #include "../window/Events.h"
+#include "../graphics/Batch2D.h"
+#include "../graphics/Font.h"
+#include "../graphics/Shader.h"
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include <locale>
+#include <codecvt>
+
+using namespace glm;
 
 Menu::Menu() : currentState(GameState::MENU), menuAction(MenuAction::NONE), selectedItem(0) {
 }
@@ -66,40 +75,97 @@ GameState Menu::update() {
 	return currentState;
 }
 
-void Menu::draw() {
+void Menu::draw(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
 	if (currentState == GameState::MENU) {
-		drawMainMenu();
+		drawMainMenu(batch, font, shader, windowWidth, windowHeight);
 	} else if (currentState == GameState::PAUSED) {
-		drawPauseMenu();
+		drawPauseMenu(batch, font, shader, windowWidth, windowHeight);
 	}
 }
 
-void Menu::drawMainMenu() {
-	// Простая текстовая отрисовка главного меню
-	// В будущем можно заменить на полноценный GUI
-	// Выводим меню в консоль (пока просто для отладки)
-	static int lastSelected = -1;
-	if (lastSelected != selectedItem) {
-		std::cout << "\n=== MAIN MENU ===" << std::endl;
-		std::cout << (selectedItem == 0 ? "> " : "  ") << "1. Create World" << std::endl;
-		std::cout << (selectedItem == 1 ? "> " : "  ") << "2. Load World" << std::endl;
-		std::cout << (selectedItem == 2 ? "> " : "  ") << "3. Quit" << std::endl;
-		std::cout << "================\n" << std::endl;
-		lastSelected = selectedItem;
-	}
+void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
+	// Устанавливаем ортографическую проекцию для UI
+	mat4 proj = ortho(0.0f, (float)windowWidth, (float)windowHeight, 0.0f, -1.0f, 1.0f);
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	
+	batch->begin();
+	
+	// Полупрозрачный фон
+	batch->color = vec4(0.0f, 0.0f, 0.0f, 0.7f);
+	batch->rect(0, 0, windowWidth, windowHeight);
+	
+	// Заголовок
+	int titleY = windowHeight / 4;
+	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	std::wstring title = L"VoxelNoxel";
+	int titleWidth = font->calcWidth(title);
+	font->draw(batch, title, (windowWidth - titleWidth) / 2, titleY, STYLE_OUTLINE);
+	
+	// Кнопки меню
+	int buttonY = windowHeight / 2;
+	int buttonHeight = 40;
+	int buttonSpacing = 60;
+	
+	drawButton(batch, font, L"Новая игра", windowWidth / 2 - 100, buttonY, 200, buttonHeight, selectedItem == 0);
+	drawButton(batch, font, L"Загрузить игру", windowWidth / 2 - 100, buttonY + buttonSpacing, 200, buttonHeight, selectedItem == 1);
+	drawButton(batch, font, L"Закрыть", windowWidth / 2 - 100, buttonY + buttonSpacing * 2, 200, buttonHeight, selectedItem == 2);
+	
+	batch->render();
 }
 
-void Menu::drawPauseMenu() {
-	// Простая текстовая отрисовка меню паузы
-	// Выводим меню паузы в консоль (пока просто для отладки)
-	static int lastSelected = -1;
-	if (lastSelected != selectedItem) {
-		std::cout << "\n=== PAUSE MENU ===" << std::endl;
-		std::cout << (selectedItem == 0 ? "> " : "  ") << "1. Continue" << std::endl;
-		std::cout << (selectedItem == 1 ? "> " : "  ") << "2. Quit" << std::endl;
-		std::cout << "==================\n" << std::endl;
-		lastSelected = selectedItem;
+void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
+	// Устанавливаем ортографическую проекцию для UI
+	mat4 proj = ortho(0.0f, (float)windowWidth, (float)windowHeight, 0.0f, -1.0f, 1.0f);
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	
+	batch->begin();
+	
+	// Полупрозрачный фон
+	batch->color = vec4(0.0f, 0.0f, 0.0f, 0.7f);
+	batch->rect(0, 0, windowWidth, windowHeight);
+	
+	// Заголовок
+	int titleY = windowHeight / 3;
+	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	std::wstring title = L"Пауза";
+	int titleWidth = font->calcWidth(title);
+	font->draw(batch, title, (windowWidth - titleWidth) / 2, titleY, STYLE_OUTLINE);
+	
+	// Кнопки меню
+	int buttonY = windowHeight / 2;
+	int buttonHeight = 40;
+	int buttonSpacing = 60;
+	
+	drawButton(batch, font, L"Продолжить", windowWidth / 2 - 100, buttonY, 200, buttonHeight, selectedItem == 0);
+	drawButton(batch, font, L"Выход", windowWidth / 2 - 100, buttonY + buttonSpacing, 200, buttonHeight, selectedItem == 1);
+	
+	batch->render();
+}
+
+void Menu::drawButton(Batch2D* batch, Font* font, const std::wstring& text, int x, int y, int width, int height, bool selected) {
+	// Фон кнопки
+	if (selected) {
+		batch->color = vec4(0.2f, 0.4f, 0.6f, 0.9f);
+	} else {
+		batch->color = vec4(0.1f, 0.1f, 0.1f, 0.8f);
 	}
+	batch->rect(x, y, width, height);
+	
+	// Рамка кнопки
+	batch->color = selected ? vec4(0.4f, 0.6f, 0.8f, 1.0f) : vec4(0.3f, 0.3f, 0.3f, 1.0f);
+	batch->line(x, y, x + width, y, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
+	batch->line(x + width, y, x + width, y + height, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
+	batch->line(x + width, y + height, x, y + height, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
+	batch->line(x, y + height, x, y, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
+	
+	// Текст кнопки
+	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	int textWidth = font->calcWidth(text);
+	int textX = x + (width - textWidth) / 2;
+	int textY = y + (height - font->lineHeight()) / 2;
+	font->draw(batch, text, textX, textY);
 }
 
 void Menu::setState(GameState state) {

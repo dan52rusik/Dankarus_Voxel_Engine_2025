@@ -4,6 +4,10 @@
 #include "GameState.h"
 #include <string>
 
+class Batch2D;
+class Font;
+class Shader;
+
 class Menu {
 public:
 	Menu();
@@ -13,7 +17,7 @@ public:
 	GameState update();
 	
 	// Отрисовка меню
-	void draw();
+	void draw(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
 	// Установка состояния
 	void setState(GameState state);
@@ -36,10 +40,13 @@ private:
 	int selectedItem; // Выбранный пункт меню (для главного меню)
 	
 	// Отрисовка главного меню
-	void drawMainMenu();
+	void drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
 	// Отрисовка меню паузы
-	void drawPauseMenu();
+	void drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
+	
+	// Вспомогательная функция для отрисовки кнопки
+	void drawButton(Batch2D* batch, Font* font, const std::wstring& text, int x, int y, int width, int height, bool selected);
 };
 
 #endif /* FRONTEND_MENU_H_ */
