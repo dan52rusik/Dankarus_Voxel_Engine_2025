@@ -12,6 +12,8 @@ float Events::x = 0.0f;
 float Events::y = 0.0f;
 bool Events::_cursor_locked = false;
 bool Events::_cursor_started = false;
+std::vector<uint> Events::codepoints;
+std::vector<int> Events::pressedKeys;
 
 #define _MOUSE_BUTTONS 1024
 
@@ -42,17 +44,33 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if (action == GLFW_PRESS){
 		Events::_keys[key] = true;
 		Events::_frames[key] = Events::_current;
+		Events::pressedKeys.push_back(key);
 	}
 	else if (action == GLFW_RELEASE){
 		Events::_keys[key] = false;
 		Events::_frames[key] = Events::_current;
 	}
+	else if (action == GLFW_REPEAT) {
+		Events::pressedKeys.push_back(key);
+	}
+}
+
+void character_callback(GLFWwindow* window, unsigned int codepoint){
+	Events::codepoints.push_back(codepoint);
+}
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height){
+	glViewport(0, 0, width, height);
+	Window::fbWidth = width;
+	Window::fbHeight = height;
 }
 
 void window_size_callback(GLFWwindow* window, int width, int height){
-	glViewport(0,0, width, height);
 	Window::width = width;
 	Window::height = height;
+	// Обновляем framebuffer size
+	glfwGetFramebufferSize(window, &Window::fbWidth, &Window::fbHeight);
+	glViewport(0, 0, Window::fbWidth, Window::fbHeight);
 }
 
 int Events::initialize(){
@@ -67,6 +85,8 @@ int Events::initialize(){
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 	glfwSetCursorPosCallback(window, cursor_position_callback);
 	glfwSetWindowSizeCallback(window, window_size_callback);
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	glfwSetCharCallback(window, character_callback);
 	return 0;
 }
 
@@ -92,14 +112,21 @@ bool Events::jclicked(int button){
 	return _keys[index] && _frames[index] == _current;
 }
 
-void Events::toogleCursor(){
+void Events::toggleCursor(){
 	_cursor_locked = !_cursor_locked;
 	Window::setCursorMode(_cursor_locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+}
+
+void Events::finalize(){
+	delete[] _keys;
+	delete[] _frames;
 }
 
 void Events::pullEvents(){
 	_current++;
 	deltaX = 0.0f;
 	deltaY = 0.0f;
+	codepoints.clear();
+	pressedKeys.clear();
 	glfwPollEvents();
 }

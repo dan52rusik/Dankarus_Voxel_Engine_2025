@@ -17,10 +17,15 @@ public:
 	vec3 front;
 	vec3 up;
 	vec3 right;
+	vec3 dir;  // Направление без Y компонента (для горизонтального движения)
 
 	vec3 position;
 	float fov;
+	float zoom;
 	mat4 rotation;
+	bool perspective = true;
+	bool flipped = false;
+	float aspect = 0.0f;  // 0 = автоматический расчет из Window
 	Camera(vec3 position, float fov);
 
 	void rotate(float x, float y, float z);

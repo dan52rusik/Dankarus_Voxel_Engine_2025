@@ -187,6 +187,10 @@ int main() {
 		if (!worldInitialized || currentState == GameState::MENU) {
 			// Отрисовываем только меню
 			if (currentState == GameState::MENU) {
+				// Убеждаемся, что viewport установлен правильно
+				glViewport(0, 0, Window::fbWidth > 0 ? Window::fbWidth : Window::width, 
+				                  Window::fbHeight > 0 ? Window::fbHeight : Window::height);
+				
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -204,7 +208,7 @@ int main() {
 		// Игровой ввод (только если игра не на паузе)
 		if (!inputLocked) {
 			if (Events::jpressed(GLFW_KEY_TAB)) {
-				Events::toogleCursor();
+				Events::toggleCursor();
 			}
 			
 			// Тестовая установка блока по нажатию клавиши T
@@ -437,6 +441,7 @@ int main() {
 	delete font;
 	delete batch;
 
+	Events::finalize();
 	Window::terminate();
 	return 0;
 }

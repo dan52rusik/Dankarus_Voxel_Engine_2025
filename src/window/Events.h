@@ -2,6 +2,7 @@
 #define WINDOW_EVENTS_H_
 
 #include "Window.h"
+#include <vector>
 
 typedef unsigned int uint;
 
@@ -16,8 +17,11 @@ public:
 	static float y;
 	static bool _cursor_locked;
 	static bool _cursor_started;
+	static std::vector<uint> codepoints;  // Для текстового ввода
+	static std::vector<int> pressedKeys;   // Список нажатых клавиш в текущем кадре
 
 	static int initialize();
+	static void finalize();  // Очистка памяти
 	static void pullEvents();
 
 	static bool pressed(int keycode);
@@ -26,7 +30,7 @@ public:
 	static bool clicked(int button);
 	static bool jclicked(int button);
 
-	static void toogleCursor();
+	static void toggleCursor();  // Исправлено: toggle вместо toogle
 };
 
 #endif /* WINDOW_EVENTS_H_ */

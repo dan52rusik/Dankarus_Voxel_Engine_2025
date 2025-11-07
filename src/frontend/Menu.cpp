@@ -10,8 +10,40 @@
 #include <iostream>
 #include <locale>
 #include <codecvt>
+#include <vector>
 
 using namespace glm;
+
+// Вспомогательные функции для рендера в стиле Minecraft
+
+// Затемнение экрана (виньетка)
+static void drawFullscreenTint(Batch2D* b, Shader* shader, int w, int h, glm::vec4 c) {
+	shader->uniform1i("u_useTex", 0); // БЕЗ текстуры для панелей
+	b->texture(nullptr); // Устанавливаем blank текстуру (белая 1x1)
+	b->color = c;
+	b->rect(0, 0, (float)w, (float)h);
+}
+
+// Прямоугольник с «майнкрафтовой» фаской
+static void drawBevelRect(Batch2D* b, Shader* shader, float x, float y, float w, float h,
+                          glm::vec4 body, glm::vec4 light, glm::vec4 dark) {
+	shader->uniform1i("u_useTex", 0); // БЕЗ текстуры для панелей
+	b->texture(nullptr); // Устанавливаем blank текстуру (белая 1x1)
+	
+	// Тело
+	b->color = body;
+	b->rect(x, y, w, h);
+	
+	// Верх/лево — светлая грань
+	b->color = light;
+	b->rect(x, y, w, 2);
+	b->rect(x, y, 2, h);
+	
+	// Низ/право — тёмная грань
+	b->color = dark;
+	b->rect(x, y + h - 2, w, 2);
+	b->rect(x + w - 2, y, 2, h);
+}
 
 Menu::Menu() : currentState(GameState::MENU), menuAction(MenuAction::NONE), selectedItem(0) {
 }
@@ -30,15 +62,14 @@ GameState Menu::update() {
 		}
 		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
 			switch (selectedItem) {
-				case 0: // Create World
-					menuAction = MenuAction::CREATE_WORLD;
+				case 0: // Один игрок (создаём/загружаем мир)
+					menuAction = MenuAction::LOAD_WORLD; // Сначала пытаемся загрузить, если нет - создаём
 					currentState = GameState::PLAYING;
 					break;
-				case 1: // Load World
-					menuAction = MenuAction::LOAD_WORLD;
-					currentState = GameState::PLAYING;
+				case 1: // Настройки
+					// TODO: открыть настройки
 					break;
-				case 2: // Quit
+				case 2: // Выход
 					menuAction = MenuAction::QUIT;
 					break;
 			}
@@ -50,24 +81,29 @@ GameState Menu::update() {
 			selectedItem = 0; // Сбрасываем выбор на "Continue"
 		}
 	} else if (currentState == GameState::PAUSED) {
-		// Меню паузы
+		// Меню паузы (теперь 3 пункта)
 		if (Events::jpressed(GLFW_KEY_ESCAPE)) {
 			currentState = GameState::PLAYING;
 		}
 		if (Events::jpressed(GLFW_KEY_UP)) {
-			selectedItem = (selectedItem - 1 + 2) % 2;
+			selectedItem = (selectedItem - 1 + 3) % 3;
 		}
 		if (Events::jpressed(GLFW_KEY_DOWN)) {
-			selectedItem = (selectedItem + 1) % 2;
+			selectedItem = (selectedItem + 1) % 3;
 		}
 		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
-			// Продолжить игру
+			// Вернуться в игру
 			if (selectedItem == 0) {
 				currentState = GameState::PLAYING;
 			}
-			// Выход из игры
+			// Настройки (пока ничего не делаем)
 			else if (selectedItem == 1) {
-				menuAction = MenuAction::QUIT;
+				// TODO: открыть настройки
+			}
+			// Главное меню
+			else if (selectedItem == 2) {
+				currentState = GameState::MENU;
+				selectedItem = 0;
 			}
 		}
 	}
@@ -84,88 +120,126 @@ void Menu::draw(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int
 }
 
 void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
+	// Используем размеры framebuffer для ортографической проекции (для HiDPI)
+	int fbWidth = Window::fbWidth > 0 ? Window::fbWidth : windowWidth;
+	int fbHeight = Window::fbHeight > 0 ? Window::fbHeight : windowHeight;
+	
 	// Устанавливаем ортографическую проекцию для UI
-	mat4 proj = ortho(0.0f, (float)windowWidth, (float)windowHeight, 0.0f, -1.0f, 1.0f);
+	mat4 proj = ortho(0.0f, (float)fbWidth, (float)fbHeight, 0.0f, -1.0f, 1.0f);
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
+	shader->uniform1i("u_useTex", 0); // по умолчанию панели — без текстуры
 	
 	batch->begin();
 	
-	// Полупрозрачный фон
-	batch->color = vec4(0.0f, 0.0f, 0.0f, 0.7f);
-	batch->rect(0, 0, windowWidth, windowHeight);
+	// Затемняем фон (виньетка)
+	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.35f));
 	
 	// Заголовок
-	int titleY = windowHeight / 4;
-	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-	std::wstring title = L"VoxelNoxel";
-	int titleWidth = font->calcWidth(title);
-	font->draw(batch, title, (windowWidth - titleWidth) / 2, titleY, STYLE_OUTLINE);
+	const std::wstring title = L"Voxel Noxel";
+	int tW = font->calcWidth(title);
+	int tX = (fbWidth - tW) / 2;
+	int tY = fbHeight / 5; // повыше центра
+	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
+	batch->color = style.textColor;
+	font->draw(batch, title, tX, tY, STYLE_SHADOW);
+	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
+	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
 	
-	// Кнопки меню
-	int buttonY = windowHeight / 2;
-	int buttonHeight = 40;
-	int buttonSpacing = 60;
+	// Пункты как в Minecraft (используем ASCII для совместимости)
+	std::vector<std::wstring> items = {
+		L"Single Player",
+		L"Settings",
+		L"Quit Game"
+	};
 	
-	drawButton(batch, font, L"Новая игра", windowWidth / 2 - 100, buttonY, 200, buttonHeight, selectedItem == 0);
-	drawButton(batch, font, L"Загрузить игру", windowWidth / 2 - 100, buttonY + buttonSpacing, 200, buttonHeight, selectedItem == 1);
-	drawButton(batch, font, L"Закрыть", windowWidth / 2 - 100, buttonY + buttonSpacing * 2, 200, buttonHeight, selectedItem == 2);
+	int w = style.buttonW;
+	int h = style.buttonH;
+	int x = (fbWidth - w) / 2;
+	int y0 = tY + 80;
 	
+	for (size_t i = 0; i < items.size(); ++i) {
+		int y = y0 + (int)i * (h + style.buttonGap);
+		bool isSel = (int)i == selectedItem;
+		drawButton(batch, font, shader, items[i], x, y, w, h, isSel);
+	}
+	
+	// Убеждаемся, что флаг установлен правильно перед рендерингом
+	shader->uniform1i("u_useTex", 0); // панели без текстуры
 	batch->render();
 }
 
 void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
+	// Используем размеры framebuffer для ортографической проекции (для HiDPI)
+	int fbWidth = Window::fbWidth > 0 ? Window::fbWidth : windowWidth;
+	int fbHeight = Window::fbHeight > 0 ? Window::fbHeight : windowHeight;
+	
 	// Устанавливаем ортографическую проекцию для UI
-	mat4 proj = ortho(0.0f, (float)windowWidth, (float)windowHeight, 0.0f, -1.0f, 1.0f);
+	mat4 proj = ortho(0.0f, (float)fbWidth, (float)fbHeight, 0.0f, -1.0f, 1.0f);
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
+	shader->uniform1i("u_useTex", 0); // по умолчанию панели — без текстуры
 	
 	batch->begin();
 	
-	// Полупрозрачный фон
-	batch->color = vec4(0.0f, 0.0f, 0.0f, 0.7f);
-	batch->rect(0, 0, windowWidth, windowHeight);
+	// Затемняем фон (виньетка)
+	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.45f));
 	
 	// Заголовок
-	int titleY = windowHeight / 3;
-	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-	std::wstring title = L"Пауза";
-	int titleWidth = font->calcWidth(title);
-	font->draw(batch, title, (windowWidth - titleWidth) / 2, titleY, STYLE_OUTLINE);
+	const std::wstring title = L"Game Menu";
+	int tW = font->calcWidth(title);
+	int tX = (fbWidth - tW) / 2;
+	int tY = fbHeight / 5;
+	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
+	batch->color = style.textColor;
+	font->draw(batch, title, tX, tY, STYLE_SHADOW);
+	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
+	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
 	
-	// Кнопки меню
-	int buttonY = windowHeight / 2;
-	int buttonHeight = 40;
-	int buttonSpacing = 60;
+	// Пункты как в Minecraft (используем ASCII для совместимости)
+	std::vector<std::wstring> items = {
+		L"Back to Game",
+		L"Settings",
+		L"Main Menu"
+	};
 	
-	drawButton(batch, font, L"Продолжить", windowWidth / 2 - 100, buttonY, 200, buttonHeight, selectedItem == 0);
-	drawButton(batch, font, L"Выход", windowWidth / 2 - 100, buttonY + buttonSpacing, 200, buttonHeight, selectedItem == 1);
+	int w = style.buttonW;
+	int h = style.buttonH;
+	int x = (fbWidth - w) / 2;
+	int y0 = tY + 80;
 	
+	for (size_t i = 0; i < items.size(); ++i) {
+		int y = y0 + (int)i * (h + style.buttonGap);
+		bool isSel = (int)i == selectedItem;
+		drawButton(batch, font, shader, items[i], x, y, w, h, isSel);
+	}
+	
+	// Убеждаемся, что флаг установлен правильно перед рендерингом
+	shader->uniform1i("u_useTex", 0); // панели без текстуры
 	batch->render();
 }
 
-void Menu::drawButton(Batch2D* batch, Font* font, const std::wstring& text, int x, int y, int width, int height, bool selected) {
-	// Фон кнопки
-	if (selected) {
-		batch->color = vec4(0.2f, 0.4f, 0.6f, 0.9f);
-	} else {
-		batch->color = vec4(0.1f, 0.1f, 0.1f, 0.8f);
-	}
-	batch->rect(x, y, width, height);
-	
-	// Рамка кнопки
-	batch->color = selected ? vec4(0.4f, 0.6f, 0.8f, 1.0f) : vec4(0.3f, 0.3f, 0.3f, 1.0f);
-	batch->line(x, y, x + width, y, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
-	batch->line(x + width, y, x + width, y + height, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
-	batch->line(x + width, y + height, x, y + height, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
-	batch->line(x, y + height, x, y, batch->color.r, batch->color.g, batch->color.b, batch->color.a);
-	
-	// Текст кнопки
-	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-	int textWidth = font->calcWidth(text);
-	int textX = x + (width - textWidth) / 2;
-	int textY = y + (height - font->lineHeight()) / 2;
-	font->draw(batch, text, textX, textY);
+void Menu::drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text,
+                      int x, int y, int w, int h, bool selected) {
+	glm::vec4 body   = selected ? style.panelHover : style.panelColor;
+	glm::vec4 light  = selected ? style.bevelDark  : style.bevelLight; // инверсия фаски при hover
+	glm::vec4 dark   = selected ? style.bevelLight : style.bevelDark;
+
+	drawBevelRect(batch, shader, (float)x, (float)y, (float)w, (float)h, body, light, dark);
+
+	// Текст по центру с пиксельной тенью
+	int tw = font->calcWidth(text);
+	int th = font->lineHeight();
+	int tx = x + (w - tw) / 2;
+	int ty = y + (h - th) / 2 + 1;
+
+	// Minecraft-like shadow (STYLE_SHADOW)
+	// Включаем текстуру для текста
+	shader->uniform1i("u_useTex", 1); // ВКЛЮЧАЕМ текстуру для текста
+	batch->color = style.textColor;
+	font->draw(batch, text, tx, ty, STYLE_SHADOW);
+	shader->uniform1i("u_useTex", 0); // ВОЗВРАЩАЕМСЯ к панелям
+	batch->texture(nullptr); // Сбрасываем текстуру на blank (белая 1x1)
 }
 
 void Menu::setState(GameState state) {
