@@ -170,6 +170,45 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	shader->uniformMatrix("u_projview", proj);
 	shader->uniform1i("u_texture", 0);  // устанавливаем один раз на весь пасс
 	
+	// ОТЛАДКА: Проверка атласа font_4.png (page=4)
+	// Раскомментируйте для проверки содержимого атласа
+	// Должны быть видны кириллические буквы в диапазонах 0xC0..0xFF
+	// В строках 12-13 (0xC0..0xDF) должны быть А-Я
+	// В строках 14-15 (0xE0..0xFF) должны быть а-я
+	// Если видите латиницу - атлас нужно пересобрать
+	/*
+	batch->color = style.textColor;
+	std::wstring row;
+	for (int r = 0; r < 16; ++r) {
+		row.clear();
+		for (int c = 0; c < 16; ++c) {
+			// Создаем байт напрямую (0x00..0xFF)
+			unsigned char byte = (unsigned char)((r << 4) | c);
+			// Для проверки атласа используем Unicode символы, которые маппятся в CP1251
+			// Для кириллицы (0xC0-0xFF) используем соответствующие Unicode символы
+			wchar_t ch;
+			if (byte >= 0xC0 && byte <= 0xDF) {
+				// А-Я: маппим CP1251 → Unicode
+				ch = (wchar_t)(0x0410 + (byte - 0xC0)); // U+0410 (А) + offset
+			} else if (byte >= 0xE0 && byte <= 0xFF) {
+				// а-я: маппим CP1251 → Unicode
+				ch = (wchar_t)(0x0430 + (byte - 0xE0)); // U+0430 (а) + offset
+			} else if (byte == 0xA8) {
+				ch = 0x0401; // Ё
+			} else if (byte == 0xB8) {
+				ch = 0x0451; // ё
+			} else {
+				// Для остальных байтов используем прямой маппинг
+				ch = (wchar_t)byte;
+			}
+			// Маппим в page=4 для кириллицы
+			ch = (wchar_t)((4 << 8) | (ch & 0xFFFF));
+			row.push_back(ch);
+		}
+		font->draw(batch, shader, row, 8, 8 + r*18, STYLE_NONE);
+	}
+	*/
+	
 	// Заголовок (округляем до целых для четкости)
 	const std::wstring title = L"Voxel Noxel";
 	int tW = font->calcWidth(title);

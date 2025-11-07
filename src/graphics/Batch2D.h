@@ -10,6 +10,7 @@ using namespace glm;
 
 class Mesh;
 class Texture;
+class Sprite;
 
 typedef struct {
 	int size;
@@ -41,8 +42,8 @@ public:
 	void begin();
 	void texture(Texture* texture);
 	void sprite(float x, float y, float w, float h, int atlasRes, int index, vec4 tint);
-	void point(float x, float y, float r, float g, float b, float a);
-	void line(float x1, float y1, float x2, float y2, float r, float g, float b, float a);
+	void sprite(Sprite* sprite);
+	void blockSprite(float x, float y, float w, float h, int atlasRes, int index[6], vec4 tint);
 	void rect(float x, float y,
 			float w, float h,
 			float ox, float oy,
@@ -54,7 +55,6 @@ public:
 	void rect(float x, float y, float w, float h,
 			float u, float v, float tx, float ty,
 			float r, float g, float b, float a);
-	void render(unsigned int gl_primitive);
 	void render();
 };
 

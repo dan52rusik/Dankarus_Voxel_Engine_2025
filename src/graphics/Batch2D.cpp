@@ -1,6 +1,7 @@
 #include "Batch2D.h"
 #include "Mesh.h"
 #include "Texture.h"
+#include "Sprite.h"
 
 #include <GL/glew.h>
 #include <cmath>
@@ -8,21 +9,18 @@
 #define VERTEX_SIZE 8
 
 Batch2D::Batch2D(size_t capacity) : capacity(capacity), offset(0), color(1.0f, 1.0f, 1.0f, 1.0f){
-	const vattr attrs[] = {
-		{2}, {2}, {4}, {0}
-	};
-	const int attrsInt[] = {
-		attrs[0].size, attrs[1].size, attrs[2].size, attrs[3].size
+	const int attrs[] = {
+		2, 2, 4, 0 //null terminator
 	};
 
 	buffer = new float[capacity * VERTEX_SIZE];
-	mesh = new Mesh(buffer, 0, attrsInt);
+	mesh = new Mesh(buffer, 0, attrs);
 	index = 0;
 
 	unsigned char pixels[] = {
 			255, 255, 255, 255,
 	};
-	blank = new Texture(pixels, 1, 1, GL_RGBA);
+	blank = new Texture(pixels, 1, 1);
 	_texture = nullptr;
 }
 
@@ -35,7 +33,6 @@ Batch2D::~Batch2D(){
 void Batch2D::begin(){
 	_texture = nullptr;
 	blank->bind();
-	index = 0;
 }
 
 void Batch2D::vertex(float x, float y,
@@ -66,7 +63,7 @@ void Batch2D::vertex(vec2 point,
 void Batch2D::texture(Texture* new_texture){
 	if (_texture == new_texture)
 		return;
-	render(GL_TRIANGLES);
+	render();
 	_texture = new_texture;
 	if (new_texture == nullptr)
 		blank->bind();
@@ -74,22 +71,6 @@ void Batch2D::texture(Texture* new_texture){
 		new_texture->bind();
 }
 
-void Batch2D::point(float x, float y, float r, float g, float b, float a){
-	if (index + 6*VERTEX_SIZE >= capacity)
-		render(GL_TRIANGLES);
-
-	vertex(x, y, 0, 0, r,g,b,a);
-	render(GL_POINTS);
-}
-
-void Batch2D::line(float x1, float y1, float x2, float y2, float r, float g, float b, float a){
-	if (index + 6*VERTEX_SIZE >= capacity)
-		render(GL_TRIANGLES);
-
-	vertex(x1, y1, 0, 0, r,g,b,a);
-	vertex(x2, y2, 1, 1, r,g,b,a);
-	render(GL_LINES);
-}
 
 void Batch2D::rect(float x, float y, float w, float h){
 	const float r = color.r;
@@ -97,15 +78,15 @@ void Batch2D::rect(float x, float y, float w, float h){
 	const float b = color.b;
 	const float a = color.a;
 	if (index + 6*VERTEX_SIZE >= capacity)
-		render(GL_TRIANGLES);
+		render();
 
 	vertex(x, y, 0, 0, r,g,b,a);
+	vertex(x+w, y+h, 1, 1, r,g,b,a);
 	vertex(x, y+h, 0, 1, r,g,b,a);
-	vertex(x+w, y+h, 1, 1, r,g,b,a);
 
 	vertex(x, y, 0, 0, r,g,b,a);
-	vertex(x+w, y+h, 1, 1, r,g,b,a);
 	vertex(x+w, y, 1, 0, r,g,b,a);
+	vertex(x+w, y+h, 1, 1, r,g,b,a);
 }
 
 void Batch2D::rect(
@@ -118,7 +99,7 @@ void Batch2D::rect(
 		bool flippedY,
 		vec4 tint) {
 	if (index + 6*VERTEX_SIZE >= capacity)
-		render(GL_TRIANGLES);
+		render();
 
     float centerX = w*ox;
     float centerY = h*oy;
@@ -152,8 +133,8 @@ void Batch2D::rect(
         x3 = c * _x3 - s * _y3;
         y3 = s * _x3 + c * _y3;
 
-        x4 = c * _x4 - s * _y4;
-        y4 = s * _x4 + c * _y4;
+        x4 = x1 + (x3 - x2);
+        y4 = y3 - (y2 - y1);
     } else {
         x1 = _x1;
         y1 = _y1;
@@ -196,16 +177,17 @@ void Batch2D::rect(
     vertex(x2, y2, u2, v2, tint.r, tint.g, tint.b, tint.a);
     vertex(x3, y3, u3, v3, tint.r, tint.g, tint.b, tint.a);
 
+    /* Right down triangle */
     vertex(x1, y1, u1, v1, tint.r, tint.g, tint.b, tint.a);
     vertex(x3, y3, u3, v3, tint.r, tint.g, tint.b, tint.a);
     vertex(x4, y4, u4, v4, tint.r, tint.g, tint.b, tint.a);
 }
 
 void Batch2D::rect(float x, float y, float w, float h,
-		float u, float v, float tx, float ty,
-		float r, float g, float b, float a){
+					float u, float v, float tx, float ty,
+					float r, float g, float b, float a){
 	if (index + 6*VERTEX_SIZE >= capacity)
-		render(GL_TRIANGLES);
+		render();
 	vertex(x, y, u, v+ty, r,g,b,a);
 	vertex(x+w, y+h, u+tx, v, r,g,b,a);
 	vertex(x, y+h, u, v, r,g,b,a);
@@ -215,40 +197,88 @@ void Batch2D::rect(float x, float y, float w, float h,
 	vertex(x+w, y+h, u+tx, v, r,g,b,a);
 }
 
+void Batch2D::sprite(Sprite* sprite) {
+	vec2 position = sprite->position;
+	vec2 size = sprite->size;
+	vec2 origin = sprite->origin;
+	texture(sprite->texture);
+	rect(
+		position.x, position.y,
+		size.x, size.y,
+		origin.x, origin.y,
+		sprite->angle,
+		sprite->region,
+		sprite->flippedX,
+		sprite->flippedY,
+		sprite->color);
+}
+
 void Batch2D::sprite(float x, float y, float w, float h, int atlasRes, int index, vec4 tint){
 	float scale = 1.0f / (float)atlasRes;
 	float u = (index % atlasRes) * scale;
-	// ВАЖНО: PNG-лоадер уже делает вертикальный флип (row_pointers[t_height - 1 - i]),
-	// поэтому двойной флип = обратно вверх ногами. Убираем инверсию V.
-	float v = (index / atlasRes) * scale; // без 1.0 - ... - scale
+	float v = 1.0f - ((index / atlasRes) * scale) - scale;
 	rect(x, y, w, h, u, v, scale, scale, tint.r, tint.g, tint.b, tint.a);
 }
 
-void Batch2D::render(unsigned int gl_primitive) {
-	if (index == 0)
-		return;
+void Batch2D::blockSprite(float x, float y, float w, float h, int atlasRes, int index[6], vec4 tint){
+	float scale = 1.0f / (float)atlasRes;
+	float uu = (index[3] % atlasRes) * scale;
+	float vu = 1.0f - ((index[3] / atlasRes) * scale) - scale;
+	float uf = (index[0] % atlasRes) * scale;
+	float vf = 1.0f - ((index[0] / atlasRes) * scale) - scale;
+	if (this->index + 18*VERTEX_SIZE >= capacity)
+		render();
+
+	float ar = 0.88f;
+	float ox = x + (w * 0.5f);
+	float sx = w * 0.5f * ar;
+	vec2 points[7] =   {vec2(ox,        y+(h*0.5f)),
+						vec2(ox-sx,     y+(h*0.25f)),
+						vec2(ox,        y),
+						vec2(ox+sx,     y+(h*0.25f)),
+						vec2(ox+sx,     y+(h*0.75f)),
+						vec2(ox,        y+h),
+						vec2(ox-sx,     y+(h*0.75f))};
+
+	vec2 uvpoints[8] = {vec2(uu,        vu),
+						vec2(uu+scale,  vu),
+						vec2(uu+scale,  vu+scale),
+						vec2(uu,        vu+scale),
+						vec2(uf,        vf),
+						vec2(uf+scale,  vf),
+						vec2(uf+scale,  vf+scale),
+						vec2(uf,        vf+scale)};
 	
-	// ВАЖНО: биндим текстуру перед рендерингом
-	if (_texture != nullptr) {
-		_texture->bind();
-	} else {
-		blank->bind();
-	}
+	vertex(points[0], uvpoints[3], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[1], uvpoints[0], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[2], uvpoints[1], tint.r, tint.g, tint.b, tint.a);
+
+	vertex(points[0], uvpoints[3], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[2], uvpoints[1], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[3], uvpoints[2], tint.r, tint.g, tint.b, tint.a);
+
 	
-	// Создаем новый меш с текущими данными
-	const vattr attrs[] = {
-		{2}, {2}, {4}, {0}
-	};
-	const int attrsInt[] = {
-		attrs[0].size, attrs[1].size, attrs[2].size, attrs[3].size
-	};
-	delete mesh;
-	mesh = new Mesh(buffer, index / VERTEX_SIZE, attrsInt);
-	mesh->draw(gl_primitive);
-	index = 0;
+	vertex(points[0], uvpoints[7], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[3], uvpoints[6], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[4], uvpoints[5], tint.r, tint.g, tint.b, tint.a);
+
+	vertex(points[0], uvpoints[7], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[4], uvpoints[5], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[5], uvpoints[4], tint.r, tint.g, tint.b, tint.a);
+
+	
+	vertex(points[0], uvpoints[6], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[5], uvpoints[5], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[6], uvpoints[4], tint.r, tint.g, tint.b, tint.a);
+
+	vertex(points[0], uvpoints[6], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[6], uvpoints[4], tint.r, tint.g, tint.b, tint.a);
+	vertex(points[1], uvpoints[7], tint.r, tint.g, tint.b, tint.a);
 }
 
 void Batch2D::render() {
-	render(GL_TRIANGLES);
+	mesh->reload(buffer, index / VERTEX_SIZE);
+	mesh->draw(GL_TRIANGLES);
+	index = 0;
 }
 

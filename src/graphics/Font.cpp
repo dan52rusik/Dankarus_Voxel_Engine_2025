@@ -36,6 +36,36 @@ bool Font::isPrintableChar(int c) {
 
 #define RES 16
 
+// Маппинг Unicode → Windows-1251 для font_4.png
+// ВАЖНО: Этот маппинг работает ТОЛЬКО если font_4.png разложен в порядке CP1251
+// Если font_4.png в порядке Unicode (0x0400..0x04FF), уберите этот маппинг
+// и используйте просто: glyphIndex = c & 0xFF;
+static int unicodeTo1251(int u) {
+	// А-Я (U+0410-U+042F) → Windows-1251 (0xC0-0xDF)
+	if (u >= 0x0410 && u <= 0x042F) {
+		return 0xC0 + (u - 0x0410);
+	}
+	// а-я (U+0430-U+044F) → Windows-1251 (0xE0-0xFF)
+	if (u >= 0x0430 && u <= 0x044F) {
+		return 0xE0 + (u - 0x0430);
+	}
+	// Ё/ё
+	if (u == 0x0401) return 0xA8; // Ё
+	if (u == 0x0451) return 0xB8; // ё
+	// Специальные символы (по желанию, если есть в атласе)
+	if (u == 0x00AB) return 0xAB; // «
+	if (u == 0x00BB) return 0xBB; // »
+	if (u == 0x2013) return 0x96; // en dash –
+	if (u == 0x2014) return 0x97; // em dash —
+	if (u == 0x2116) return 0xB9; // №
+	// Иначе — младший байт (если вдруг предусмотрено)
+	return u & 0xFF;
+}
+
+// Флаг для переключения между Unicode и CP1251 маппингом
+// Если font_4.png в порядке Unicode, установите USE_UNICODE_MAPPING = true
+#define USE_UNICODE_MAPPING false  // false = CP1251, true = Unicode
+
 int Font::calcWidth(std::wstring text) {
 	return text.length() * 8;
 }
@@ -50,6 +80,11 @@ void Font::draw(Batch2D* batch, std::wstring text, int x, int y, int style) {
 
 void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y, int style) {
 	const int init_x = x;
+	
+	// Отключаем sRGB для пиксель-в-пиксель рендеринга шрифтов
+	// (на всякий случай, если включен глобально, чтобы не мыло альфу)
+	GLboolean sRGBEnabled = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+	glDisable(GL_FRAMEBUFFER_SRGB);
 	
 	// DEBUG: Выводим коды и страницы строки (только один раз для диагностики)
 	// Раскомментируйте, если нужно проверить коды символов:
@@ -75,7 +110,7 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 		}
 	}
 	
-	// Убрали лишние логи для производительности
+	// Убрали временные логи для производительности
 	
 	// Проходим по всем страницам, где есть символы
 	int pageCount = 0;
@@ -133,8 +168,17 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 			}
 			*/
 			
-			// ВАЖНО: индекс в атласе — младший байт (0-255 для атласа 16x16)
-			int glyphIndex = c & 0xFF;
+			// ВАЖНО: выбор маппинга зависит от порядка глифов в font_4.png
+			// Если font_4.png в порядке CP1251 (0xC0-0xDF = А-Я, 0xE0-0xFF = а-я) → используйте CP1251
+			// Если font_4.png в порядке Unicode (0x0400-0x04FF) → используйте Unicode
+			int glyphIndex;
+			if (charpage == 4 && !USE_UNICODE_MAPPING) {
+				// Кириллица: маппим Unicode → Windows-1251 (font_4.png в порядке CP1251)
+				glyphIndex = unicodeTo1251(c);
+			} else {
+				// Латиница и другие, или Unicode-маппинг: используем младший байт Unicode
+				glyphIndex = c & 0xFF;
+			}
 			
 			// Тень/обводка
 			switch (style) {
@@ -165,6 +209,11 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 		// (проекция должна быть установлена вызывающим кодом)
 		// Убрали лишние вызовы glGetUniformLocation для производительности
 		batch->render();
+	}
+	
+	// Восстанавливаем состояние sRGB
+	if (sRGBEnabled) {
+		glEnable(GL_FRAMEBUFFER_SRGB);
 	}
 }
 
