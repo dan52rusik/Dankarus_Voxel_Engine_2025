@@ -2,11 +2,13 @@
 #define VOXELS_CHUNKMANAGER_H_
 
 #include "MCChunk.h"
+#include "voxel.h"
 #include "noise/OpenSimplex.h"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <limits>
 
 class ChunkManager {
 public:
@@ -21,6 +23,12 @@ public:
 	
 	// Параметры генерации
 	void setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
+	
+	// Система воксельных блоков
+	voxel* getVoxel(int x, int y, int z); // Получить воксель по мировым координатам
+	void setVoxel(int x, int y, int z, uint8_t id); // Установить воксель по мировым координатам
+	voxel* rayCast(const glm::vec3& start, const glm::vec3& dir, float maxDist, glm::vec3& end, glm::vec3& norm, glm::vec3& iend); // Raycast для определения блока
+	bool rayCastSurface(const glm::vec3& start, const glm::vec3& dir, float maxDist, glm::vec3& hitPos, glm::vec3& hitNorm); // Raycast по поверхности Marching Cubes
 	
 private:
 	std::unordered_map<std::string, MCChunk*> chunks;

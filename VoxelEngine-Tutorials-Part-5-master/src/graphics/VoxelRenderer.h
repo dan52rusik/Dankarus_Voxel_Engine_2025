@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 class Mesh;
-class MCChunk;
+class Chunk;
 
 class VoxelRenderer {
 	float* buffer;
@@ -13,7 +13,7 @@ public:
 	VoxelRenderer(size_t capacity);
 	~VoxelRenderer();
 
-	Mesh* render(MCChunk* chunk, MCChunk** nearbyChunks);
+	Mesh* render(Chunk* chunk, const Chunk** chunks);
 };
 
 #endif /* GRAPHICS_VOXELRENDERER_H_ */

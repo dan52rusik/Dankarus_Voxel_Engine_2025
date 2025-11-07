@@ -4,8 +4,7 @@
 #include <stdint.h>
 
 struct voxel {
-	float density;
-	uint8_t id; // ID блока (0 = воздух, >0 = блок)
+	uint8_t id;
 };
 
 #endif /* VOXELS_VOXEL_H_ */
