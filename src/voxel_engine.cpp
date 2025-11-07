@@ -169,7 +169,7 @@ int main() {
 					int bx = (int)iend.x;
 					int by = (int)iend.y;
 					int bz = (int)iend.z;
-					std::cout << "[УДАЛЕНИЕ] Блок удален в координатах (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+					std::cout << "[DELETE] Block removed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
 					chunkManager.setVoxel(bx, by, bz, 0);
 				}
 				if (Events::jclicked(GLFW_MOUSE_BUTTON_2)) {
@@ -177,16 +177,16 @@ int main() {
 					int bx = (int)(iend.x) + (int)(norm.x);
 					int by = (int)(iend.y) + (int)(norm.y);
 					int bz = (int)(iend.z) + (int)(norm.z);
-					std::cout << "[УСТАНОВКА] Попытка установить блок рядом с воксельным блоком в координатах (" 
+					std::cout << "[PLACE] Attempting to place block next to voxel at (" 
 					          << bx << ", " << by << ", " << bz << ")" << std::endl;
 					chunkManager.setVoxel(bx, by, bz, 2);
 					
 					// Проверяем, установился ли блок
 					voxel* checkVox = chunkManager.getVoxel(bx, by, bz);
 					if (checkVox != nullptr && checkVox->id == 2) {
-						std::cout << "[УСПЕХ] Блок успешно установлен в координатах (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+						std::cout << "[SUCCESS] Block placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
 					} else {
-						std::cout << "[ОШИБКА] Блок не установлен в координатах (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+						std::cout << "[ERROR] Block NOT placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
 					}
 				}
 			} else {
@@ -196,9 +196,9 @@ int main() {
 				if (chunkManager.rayCastSurface(camera->position, camera->front, 10.0f, surfacePos, surfaceNorm)) {
 					if (Events::jclicked(GLFW_MOUSE_BUTTON_2)) {
 						// Установка блока на поверхность земли
-						std::cout << "[ПОВЕРХНОСТЬ] Найдена поверхность земли в координатах (" 
+						std::cout << "[SURFACE] Found ground surface at (" 
 						          << surfacePos.x << ", " << surfacePos.y << ", " << surfacePos.z 
-						          << ") нормаль: (" << surfaceNorm.x << ", " << surfaceNorm.y << ", " << surfaceNorm.z << ")" << std::endl;
+						          << ") normal: (" << surfaceNorm.x << ", " << surfaceNorm.y << ", " << surfaceNorm.z << ")" << std::endl;
 						
 						// Округляем до целых координат (сетка блоков)
 						int bx = (int)std::round(surfacePos.x);
@@ -209,14 +209,14 @@ int main() {
 						if (surfaceNorm.y > 0.5f) {
 							// Поверхность сверху - ставим на неё
 							by = (int)std::floor(surfacePos.y) + 1;
-							std::cout << "[УСТАНОВКА] Поверхность сверху, ставим блок на поверхность" << std::endl;
+							std::cout << "[PLACE] Surface on top, placing block on surface" << std::endl;
 						} else {
 							// Поверхность сбоку - ставим рядом
 							by = (int)std::round(surfacePos.y);
-							std::cout << "[УСТАНОВКА] Поверхность сбоку, ставим блок рядом" << std::endl;
+							std::cout << "[PLACE] Surface on side, placing block nearby" << std::endl;
 						}
 						
-						std::cout << "[УСТАНОВКА] Попытка установить блок на поверхность земли в координатах (" 
+						std::cout << "[PLACE] Attempting to place block on ground surface at (" 
 						          << bx << ", " << by << ", " << bz << ")" << std::endl;
 						
 						chunkManager.setVoxel(bx, by, bz, 2);
@@ -224,19 +224,19 @@ int main() {
 						// Проверяем, установился ли блок
 						voxel* checkVox = chunkManager.getVoxel(bx, by, bz);
 						if (checkVox != nullptr && checkVox->id == 2) {
-							std::cout << "[УСПЕХ] Блок успешно установлен на поверхность земли в координатах (" 
+							std::cout << "[SUCCESS] Block placed on ground surface at (" 
 							          << bx << ", " << by << ", " << bz << ")" << std::endl;
 						} else {
-							std::cout << "[ОШИБКА] Блок не установлен на поверхность земли в координатах (" 
+							std::cout << "[ERROR] Block NOT placed on ground surface at (" 
 							          << bx << ", " << by << ", " << bz << ")" << std::endl;
 						}
 					}
 				} else {
 					// Отладочный вывод, если не нашли поверхность
 					if (Events::jclicked(GLFW_MOUSE_BUTTON_2)) {
-						std::cout << "[ОШИБКА] Поверхность земли не найдена. Позиция камеры: (" 
+						std::cout << "[ERROR] Ground surface not found. Camera pos: (" 
 						          << camera->position.x << ", " << camera->position.y << ", " << camera->position.z 
-						          << ") Направление: (" << camera->front.x << ", " << camera->front.y << ", " << camera->front.z << ")" << std::endl;
+						          << ") Direction: (" << camera->front.x << ", " << camera->front.y << ", " << camera->front.z << ")" << std::endl;
 					}
 				}
 			}
