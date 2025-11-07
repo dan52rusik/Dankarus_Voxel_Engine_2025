@@ -64,7 +64,8 @@ static int unicodeTo1251(int u) {
 
 // Флаг для переключения между Unicode и CP1251 маппингом
 // Если font_4.png в порядке Unicode, установите USE_UNICODE_MAPPING = true
-#define USE_UNICODE_MAPPING false  // false = CP1251, true = Unicode
+// Попробуйте сначала false, если буквы неправильные - переключите на true
+#define USE_UNICODE_MAPPING true  // false = CP1251, true = Unicode
 
 int Font::calcWidth(std::wstring text) {
 	return text.length() * 8;

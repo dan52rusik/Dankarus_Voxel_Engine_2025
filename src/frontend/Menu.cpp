@@ -176,7 +176,6 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	// В строках 12-13 (0xC0..0xDF) должны быть А-Я
 	// В строках 14-15 (0xE0..0xFF) должны быть а-я
 	// Если видите латиницу - атлас нужно пересобрать
-	/*
 	batch->color = style.textColor;
 	std::wstring row;
 	for (int r = 0; r < 16; ++r) {
@@ -207,7 +206,6 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 		}
 		font->draw(batch, shader, row, 8, 8 + r*18, STYLE_NONE);
 	}
-	*/
 	
 	// Заголовок (округляем до целых для четкости)
 	const std::wstring title = L"Voxel Noxel";
