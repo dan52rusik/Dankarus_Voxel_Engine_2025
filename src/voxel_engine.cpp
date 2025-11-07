@@ -19,10 +19,12 @@ using namespace glm;
 #include "voxels/ChunkManager.h"
 #include "voxels/MCChunk.h"
 #include "voxels/voxel.h"
+#include "voxels/WorldSave.h"
 #include "window/Window.h"
 #include "window/Events.h"
 #include "window/Camera.h"
 #include <vector>
+#include <string>
 
 int WIDTH = 1280;
 int HEIGHT = 720;
@@ -73,14 +75,26 @@ int main() {
 	ChunkManager chunkManager;
 	
 	// Параметры генерации
-	const float baseFreq = 0.03f; // Меньшая частота для более плавных холмов
-	const int octaves = 4; // Меньше октав для более ровной поверхности
-	const float lacunarity = 2.0f;
-	const float gain = 0.5f;
-	const float baseHeight = 12.0f; // Базовая высота поверхности
-	const float heightVariation = 4.0f; // Вариация высоты холмов
+	float baseFreq = 0.03f; // Меньшая частота для более плавных холмов
+	int octaves = 4; // Меньше октав для более ровной поверхности
+	float lacunarity = 2.0f;
+	float gain = 0.5f;
+	float baseHeight = 12.0f; // Базовая высота поверхности
+	float heightVariation = 4.0f; // Вариация высоты холмов
+	int seed = 1337; // Seed для генерации мира
 	
-	chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	// Система сохранения/загрузки
+	WorldSave worldSave;
+	const std::string saveFileName = "world.vxl";
+	
+	// Пытаемся загрузить сохраненный мир
+	if (worldSave.load(saveFileName, chunkManager, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
+		std::cout << "[LOAD] World loaded successfully from " << saveFileName << std::endl;
+		chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	} else {
+		std::cout << "[LOAD] No saved world found, using default parameters" << std::endl;
+		chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	}
 	
 	// Радиус загрузки чанков вокруг камеры
 	const int renderDistance = 3;
@@ -123,6 +137,18 @@ int main() {
 			int bz = (int)camera->position.z;
 			std::cout << "Тестовая установка блока в позиции камеры: (" << bx << ", " << by << ", " << bz << ")" << std::endl;
 			chunkManager.setVoxel(bx, by, bz, 2);
+		}
+		
+		// Сохранение мира по нажатию F5
+		if (Events::jpressed(GLFW_KEY_F5)) {
+			float bf, l, g, bh, hv;
+			int o;
+			chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+			if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
+				std::cout << "[SAVE] World saved successfully to " << saveFileName << std::endl;
+			} else {
+				std::cout << "[SAVE] Failed to save world to " << saveFileName << std::endl;
+			}
 		}
 
 		if (Events::pressed(GLFW_KEY_W)) {
@@ -307,6 +333,13 @@ int main() {
 		Events::pullEvents();
 	}
 
+	// Автосохранение при выходе
+	float bf, l, g, bh, hv;
+	int o;
+	chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+	worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv);
+	std::cout << "[SAVE] Auto-saved world on exit" << std::endl;
+	
 	delete shader;
 	delete voxelShader;
 	delete texture;

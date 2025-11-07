@@ -21,8 +21,12 @@ public:
 	// Получить все видимые чанки для отрисовки
 	std::vector<MCChunk*> getVisibleChunks() const;
 	
+	// Получить все загруженные чанки (для сохранения)
+	std::vector<MCChunk*> getAllChunks() const;
+	
 	// Параметры генерации
 	void setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
+	void getNoiseParams(float& baseFreq, int& octaves, float& lacunarity, float& gain, float& baseHeight, float& heightVariation) const;
 	
 	// Система воксельных блоков
 	voxel* getVoxel(int x, int y, int z); // Получить воксель по мировым координатам

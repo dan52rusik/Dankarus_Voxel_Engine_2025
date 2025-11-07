@@ -22,11 +22,15 @@ std::string ChunkManager::chunkKey(int cx, int cy, int cz) const {
 }
 
 glm::ivec3 ChunkManager::worldToChunk(const glm::vec3& worldPos) const {
-	return glm::ivec3(
-		(int)std::floor(worldPos.x / MCChunk::CHUNK_SIZE_X),
-		(int)std::floor(worldPos.y / MCChunk::CHUNK_SIZE_Y),
-		(int)std::floor(worldPos.z / MCChunk::CHUNK_SIZE_Z)
-	);
+	// Для отрицательных координат нужно правильно вычислять чанк
+	// floor() уже правильно работает для отрицательных чисел
+	// Например: floor(-1/32) = floor(-0.03125) = -1
+	//           floor(-33/32) = floor(-1.03125) = -2
+	int cx = (int)std::floor(worldPos.x / (float)MCChunk::CHUNK_SIZE_X);
+	int cy = (int)std::floor(worldPos.y / (float)MCChunk::CHUNK_SIZE_Y);
+	int cz = (int)std::floor(worldPos.z / (float)MCChunk::CHUNK_SIZE_Z);
+	
+	return glm::ivec3(cx, cy, cz);
 }
 
 void ChunkManager::generateChunk(int cx, int cy, int cz) {
@@ -98,6 +102,16 @@ std::vector<MCChunk*> ChunkManager::getVisibleChunks() const {
 	return visible;
 }
 
+std::vector<MCChunk*> ChunkManager::getAllChunks() const {
+	std::vector<MCChunk*> all;
+	for (const auto& pair : chunks) {
+		if (pair.second->generated) {
+			all.push_back(pair.second);
+		}
+	}
+	return all;
+}
+
 void ChunkManager::setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation) {
 	this->baseFreq = baseFreq;
 	this->octaves = octaves;
@@ -105,6 +119,15 @@ void ChunkManager::setNoiseParams(float baseFreq, int octaves, float lacunarity,
 	this->gain = gain;
 	this->baseHeight = baseHeight;
 	this->heightVariation = heightVariation;
+}
+
+void ChunkManager::getNoiseParams(float& baseFreq, int& octaves, float& lacunarity, float& gain, float& baseHeight, float& heightVariation) const {
+	baseFreq = this->baseFreq;
+	octaves = this->octaves;
+	lacunarity = this->lacunarity;
+	gain = this->gain;
+	baseHeight = this->baseHeight;
+	heightVariation = this->heightVariation;
 }
 
 voxel* ChunkManager::getVoxel(int x, int y, int z) {
@@ -122,9 +145,15 @@ voxel* ChunkManager::getVoxel(int x, int y, int z) {
 	int lz = z - chunkPos.z * MCChunk::CHUNK_SIZE_Z;
 	
 	// Корректировка для отрицательных координат
-	if (x < 0) lx = MCChunk::CHUNK_SIZE_X + lx;
-	if (y < 0) ly = MCChunk::CHUNK_SIZE_Y + ly;
-	if (z < 0) lz = MCChunk::CHUNK_SIZE_Z + lz;
+	if (lx < 0) {
+		lx += MCChunk::CHUNK_SIZE_X;
+	}
+	if (ly < 0) {
+		ly += MCChunk::CHUNK_SIZE_Y;
+	}
+	if (lz < 0) {
+		lz += MCChunk::CHUNK_SIZE_Z;
+	}
 	
 	return chunk->getVoxel(lx, ly, lz);
 }
@@ -135,9 +164,14 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 	
 	auto it = chunks.find(key);
 	if (it == chunks.end()) {
-		std::cout << "[DEBUG] Chunk not found for world coords (" << x << ", " << y << ", " << z 
-		          << ") chunk coords (" << chunkPos.x << ", " << chunkPos.y << ", " << chunkPos.z << ")" << std::endl;
-		return;
+		// Чанк не найден - создаем его (для загрузки сохранений)
+		generateChunk(chunkPos.x, chunkPos.y, chunkPos.z);
+		it = chunks.find(key);
+		if (it == chunks.end()) {
+			std::cout << "[DEBUG] Failed to create chunk for world coords (" << x << ", " << y << ", " << z 
+			          << ") chunk coords (" << chunkPos.x << ", " << chunkPos.y << ", " << chunkPos.z << ")" << std::endl;
+			return;
+		}
 	}
 	
 	MCChunk* chunk = it->second;
@@ -148,15 +182,15 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 	int lz = z - chunkPos.z * MCChunk::CHUNK_SIZE_Z;
 	
 	// Корректировка для отрицательных координат
-	if (x < 0) {
-		// Для отрицательных координат нужно правильно вычислить локальную позицию
-		lx = ((x % MCChunk::CHUNK_SIZE_X) + MCChunk::CHUNK_SIZE_X) % MCChunk::CHUNK_SIZE_X;
+	// Например, для x = -1 и chunkPos.x = -1, lx должно быть 31 (CHUNK_SIZE_X - 1)
+	if (lx < 0) {
+		lx += MCChunk::CHUNK_SIZE_X;
 	}
-	if (y < 0) {
-		ly = ((y % MCChunk::CHUNK_SIZE_Y) + MCChunk::CHUNK_SIZE_Y) % MCChunk::CHUNK_SIZE_Y;
+	if (ly < 0) {
+		ly += MCChunk::CHUNK_SIZE_Y;
 	}
-	if (z < 0) {
-		lz = ((z % MCChunk::CHUNK_SIZE_Z) + MCChunk::CHUNK_SIZE_Z) % MCChunk::CHUNK_SIZE_Z;
+	if (lz < 0) {
+		lz += MCChunk::CHUNK_SIZE_Z;
 	}
 	
 	// Проверяем границы
@@ -169,7 +203,16 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 		return;
 	}
 	
+	// Устанавливаем блок
 	chunk->setVoxel(lx, ly, lz, id);
+	
+	// Проверяем, что блок установился
+	voxel* checkVox = chunk->getVoxel(lx, ly, lz);
+	if (checkVox == nullptr || checkVox->id != id) {
+		std::cout << "[DEBUG] Block not set correctly: world(" << x << ", " << y << ", " << z 
+		          << ") chunk(" << chunkPos.x << ", " << chunkPos.y << ", " << chunkPos.z 
+		          << ") local(" << lx << ", " << ly << ", " << lz << ") id=" << (int)id << std::endl;
+	}
 	
 	// Помечаем соседние чанки как измененные, если блок на границе
 	if (lx == 0) {

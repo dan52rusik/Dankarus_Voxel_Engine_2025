@@ -1,6 +1,7 @@
 #include "MCChunk.h"
 #include "graphics/MarchingCubes.h"
 #include <vector>
+#include <iostream>
 
 MCChunk::MCChunk(int cx, int cy, int cz) 
 	: chunkPos(cx, cy, cz), mesh(nullptr), voxelMesh(nullptr), generated(false), voxelMeshModified(true) {
@@ -40,9 +41,15 @@ voxel* MCChunk::getVoxel(int lx, int ly, int lz) {
 
 void MCChunk::setVoxel(int lx, int ly, int lz, uint8_t id) {
 	if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
+		std::cout << "[DEBUG] MCChunk::setVoxel: local coords out of bounds: (" << lx << ", " << ly << ", " << lz << ")" << std::endl;
 		return;
 	}
-	voxels[(ly * CHUNK_SIZE_Z + lz) * CHUNK_SIZE_X + lx].id = id;
+	int index = (ly * CHUNK_SIZE_Z + lz) * CHUNK_SIZE_X + lx;
+	if (index < 0 || index >= CHUNK_VOL) {
+		std::cout << "[DEBUG] MCChunk::setVoxel: index out of bounds: " << index << " for (" << lx << ", " << ly << ", " << lz << ")" << std::endl;
+		return;
+	}
+	voxels[index].id = id;
 	voxelMeshModified = true;
 }
 
