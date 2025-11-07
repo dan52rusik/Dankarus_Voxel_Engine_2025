@@ -20,7 +20,7 @@ using namespace glm;
 
 // Затемнение экрана (виньетка)
 static void drawFullscreenTint(Batch2D* b, Shader* shader, int w, int h, glm::vec4 c) {
-	shader->uniform1i("u_useTex", 0); // БЕЗ текстуры для панелей
+	glActiveTexture(GL_TEXTURE0);
 	b->texture(nullptr); // Устанавливаем blank текстуру (белая 1x1)
 	b->color = c;
 	b->rect(0, 0, (float)w, (float)h);
@@ -29,7 +29,7 @@ static void drawFullscreenTint(Batch2D* b, Shader* shader, int w, int h, glm::ve
 // Прямоугольник с «майнкрафтовой» фаской
 static void drawBevelRect(Batch2D* b, Shader* shader, float x, float y, float w, float h,
                           glm::vec4 body, glm::vec4 light, glm::vec4 dark) {
-	shader->uniform1i("u_useTex", 0); // БЕЗ текстуры для панелей
+	glActiveTexture(GL_TEXTURE0);
 	b->texture(nullptr); // Устанавливаем blank текстуру (белая 1x1)
 	
 	// Тело
@@ -131,8 +131,8 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
 	
-	// PASS 1: Панели (u_useTex = 0)
-	shader->uniform1i("u_useTex", 0);
+	// PASS 1: Панели
+	glActiveTexture(GL_TEXTURE0);
 	batch->begin();
 	
 	// Затемняем фон (виньетка)
@@ -163,56 +163,18 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	
 	batch->render();
 	
-	// PASS 2: Текст (u_useTex = 1)
-	// Font::draw теперь сам управляет batch->begin() и batch->render() для каждой страницы
-	shader->uniform1i("u_useTex", 1);
+	// PASS 2: Текст
+	// Устанавливаем шейдер и uniform один раз для всего UI-пасса
 	glActiveTexture(GL_TEXTURE0);
-	shader->uniform1i("u_texture", 0);
-	
-	// --- временно для диагностики ---
-	// Тест: показываем весь атлас целиком (0..1)
-	// ВАЖНО: делаем это ПЕРЕД текстом, чтобы убедиться, что текстура работает
-	bool blendWasEnabled = glIsEnabled(GL_BLEND);
-	glDisable(GL_BLEND);
-	
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
-	shader->uniform1i("u_useTex", 1);
-	shader->uniform1i("u_texture", 0);
-	glActiveTexture(GL_TEXTURE0);
-	
-	batch->begin();
-	if (font->pages.size() > 0 && font->pages[0] != nullptr) {
-		// ШАГ B: Диагностика - красная рамка вокруг тестового квадрата атласа
-		shader->uniform1i("u_useTex", 0); // панели (без текстуры)
-		batch->color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // красная рамка
-		batch->rect(30.0f, 30.0f, 256.0f, 1.0f);      // верх
-		batch->rect(30.0f, 30.0f, 1.0f, 256.0f);     // лев
-		batch->rect(30.0f, 285.0f, 256.0f, 1.0f);    // низ
-		batch->rect(285.0f, 30.0f, 1.0f, 256.0f);   // прав
-		
-		shader->uniform1i("u_useTex", 1); // обратно к «тексту»
-		batch->texture(font->pages[0]);
-		batch->color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-		// rect(x, y, w, h, u, v, tx, ty, r, g, b, a)
-		// Показываем весь атлас 0..1 в левом верхнем углу
-		batch->rect(30.0f, 30.0f, 256.0f, 256.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
-		batch->render();
-	}
-	
-	if (blendWasEnabled) {
-		glEnable(GL_BLEND);
-	}
-	// --- конец диагностики ---
+	shader->uniform1i("u_texture", 0);  // устанавливаем один раз на весь пасс
 	
 	// Заголовок (округляем до целых для четкости)
 	const std::wstring title = L"Voxel Noxel";
 	int tW = font->calcWidth(title);
 	int tX = (int)((fbWidth - tW) / 2);
 	batch->color = style.textColor;
-	// ВАЖНО: устанавливаем проекцию перед каждым вызовом font->draw()
-	shader->use();
-	shader->uniformMatrix("u_projview", proj);
 	font->draw(batch, shader, title, tX, tY, STYLE_SHADOW);
 	
 	// Текст на кнопках
@@ -223,11 +185,6 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 		int tx = (int)(x + (w - tw) / 2);
 		int ty = (int)(y + (h - th) / 2 + 1);
 		
-		// Текст (убрали диагностические прямоугольники)
-		// ВАЖНО: устанавливаем проекцию перед каждым вызовом font->draw()
-		shader->use();
-		shader->uniformMatrix("u_projview", proj);
-		shader->uniform1i("u_useTex", 1);
 		batch->color = style.textColor;
 		font->draw(batch, shader, items[i], tx, ty, STYLE_SHADOW);
 	}
@@ -243,8 +200,8 @@ void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowW
 	shader->use();
 	shader->uniformMatrix("u_projview", proj);
 	
-	// PASS 1: Панели (u_useTex = 0)
-	shader->uniform1i("u_useTex", 0);
+	// PASS 1: Панели
+	glActiveTexture(GL_TEXTURE0);
 	batch->begin();
 	
 	// Затемняем фон (виньетка)
@@ -275,12 +232,12 @@ void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowW
 	
 	batch->render();
 	
-	// PASS 2: Текст (u_useTex = 1)
-	// Font::draw теперь сам управляет batch->begin() и batch->render() для каждой страницы
-	shader->uniform1i("u_useTex", 1);
-	shader->uniform1i("u_maskChannel", 2); // МАКСИМУМ (используем максимальное значение из всех каналов)
+	// PASS 2: Текст
+	// Устанавливаем шейдер и uniform один раз для всего UI-пасса
 	glActiveTexture(GL_TEXTURE0);
-	shader->uniform1i("u_texture", 0);
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	shader->uniform1i("u_texture", 0);  // устанавливаем один раз на весь пасс
 	
 	// Заголовок (округляем до целых для четкости)
 	const std::wstring title = L"Пауза";
@@ -304,7 +261,7 @@ void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowW
 void Menu::drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text,
                       int x, int y, int w, int h, bool selected) {
 	// Панели
-	shader->uniform1i("u_useTex", 0);
+	glActiveTexture(GL_TEXTURE0);
 	glm::vec4 body   = selected ? style.panelHover : style.panelColor;
 	glm::vec4 light  = selected ? style.bevelDark  : style.bevelLight; // инверсия фаски при hover
 	glm::vec4 dark   = selected ? style.bevelLight : style.bevelDark;
@@ -318,10 +275,9 @@ void Menu::drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wst
 	int ty = (int)(y + (h - th) / 2 + 1);
 
 	// Minecraft-like shadow (STYLE_SHADOW)
-	shader->uniform1i("u_useTex", 1);
+	// Шейдер и uniform должны быть установлены вызывающим кодом
 	batch->color = style.textColor;
 	font->draw(batch, shader, text, tx, ty, STYLE_SHADOW);
-	// Можно ничего не сбрасывать — следующий вызов сам выставит нужный флаг
 }
 
 void Menu::setState(GameState state) {

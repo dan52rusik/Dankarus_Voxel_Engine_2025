@@ -80,17 +80,15 @@ int main() {
 		return 1;
 	}
 	// Устанавливаем текстурный юнит для UI шейдера (GL_TEXTURE0)
-	uiShader->use();
-	uiShader->uniform1i("u_texture", 0);
 	glActiveTexture(GL_TEXTURE0);
+	uiShader->use();
+	uiShader->uniform1i("u_texture", 0);   // sampler → слот 0
 
-	// Проверяем, что локации uniform'ов существуют
-	GLint loc_useTex = glGetUniformLocation(uiShader->id, "u_useTex");
+	// Проверяем, что локация uniform'а существует
 	GLint loc_texture = glGetUniformLocation(uiShader->id, "u_texture");
-	std::cout << "[UI] loc u_useTex = " << loc_useTex << std::endl;
 	std::cout << "[UI] loc u_texture = " << loc_texture << std::endl;
-	if (loc_useTex == -1 || loc_texture == -1) {
-		std::cerr << "[UI] WARNING: Some uniform locations are -1 (optimized out or name mismatch)" << std::endl;
+	if (loc_texture == -1) {
+		std::cerr << "[UI] WARNING: u_texture uniform location = -1!" << std::endl;
 	}
 	
 	// Загружаем шрифт
@@ -215,19 +213,23 @@ int main() {
 				                  Window::fbHeight > 0 ? Window::fbHeight : Window::height);
 				
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				// UI state: отключаем cull и depth, включаем blend
+				glDisable(GL_CULL_FACE);
+				glDisable(GL_DEPTH_TEST);
 				glEnable(GL_BLEND);
 				glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-				glDisable(GL_DEPTH_TEST);
 				
 				// Гарантируем нужный текстурный юнит перед UI-рендером
 				glActiveTexture(GL_TEXTURE0);
 				uiShader->use();
-				uiShader->uniform1i("u_useTex", 0); // панели по умолчанию
+				uiShader->uniform1i("u_texture", 0);   // sampler → слот 0
 				
 				menu.draw(batch, font, uiShader, Window::width, Window::height);
 				
+				// Восстанавливаем состояние
 				glDisable(GL_BLEND);
 				glEnable(GL_DEPTH_TEST);
+				glEnable(GL_CULL_FACE);
 			}
 			Window::swapBuffers();
 			Events::pullEvents();
@@ -267,10 +269,10 @@ int main() {
 				camera->position -= camera->front * delta * speed;
 			}
 			if (Events::pressed(GLFW_KEY_D)) {
-				camera->position -= camera->right * delta * speed;
+				camera->position += camera->right * delta * speed;
 			}
 			if (Events::pressed(GLFW_KEY_A)) {
-				camera->position += camera->right * delta * speed;
+				camera->position -= camera->right * delta * speed;
 			}
 
 			if (Events::_cursor_locked) {
@@ -441,19 +443,23 @@ int main() {
 		
 		// Отрисовываем меню паузы поверх мира
 		if (currentState == GameState::PAUSED) {
+			// UI state: отключаем cull и depth, включаем blend
+			glDisable(GL_CULL_FACE);
+			glDisable(GL_DEPTH_TEST);
 			glEnable(GL_BLEND);
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			glDisable(GL_DEPTH_TEST);
 			
 			// Гарантируем нужный текстурный юнит перед UI-рендером
 			glActiveTexture(GL_TEXTURE0);
 			uiShader->use();
-			uiShader->uniform1i("u_useTex", 0); // панели по умолчанию
+			uiShader->uniform1i("u_texture", 0);   // sampler → слот 0
 			
 			menu.draw(batch, font, uiShader, Window::width, Window::height);
 			
+			// Восстанавливаем состояние
 			glDisable(GL_BLEND);
 			glEnable(GL_DEPTH_TEST);
+			glEnable(GL_CULL_FACE);
 		}
 		
 		Window::swapBuffers();

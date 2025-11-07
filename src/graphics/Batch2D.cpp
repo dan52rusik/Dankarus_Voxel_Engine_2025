@@ -228,6 +228,13 @@ void Batch2D::render(unsigned int gl_primitive) {
 	if (index == 0)
 		return;
 	
+	// ВАЖНО: биндим текстуру перед рендерингом
+	if (_texture != nullptr) {
+		_texture->bind();
+	} else {
+		blank->bind();
+	}
+	
 	// Создаем новый меш с текущими данными
 	const vattr attrs[] = {
 		{2}, {2}, {4}, {0}

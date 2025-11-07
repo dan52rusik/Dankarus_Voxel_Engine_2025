@@ -49,11 +49,6 @@ void Font::draw(Batch2D* batch, std::wstring text, int x, int y, int style) {
 }
 
 void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y, int style) {
-	// ВКЛЮЧАЕМ выборку текстуры один раз для всего текста
-	if (shader != nullptr) {
-		shader->uniform1i("u_useTex", 1);
-	}
-	
 	const int init_x = x;
 	
 	// DEBUG: Выводим коды и страницы строки (только один раз для диагностики)
@@ -72,15 +67,22 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 	
 	// Соберём набор страниц, которые реально встречаются в строке
 	bool pageUsed[256] = {false}; // достаточно для BMP
+	int printableCount = 0;
 	for (unsigned c : text) {
 		if (isPrintableChar(c)) {
 			pageUsed[(c >> 8) & 0xFF] = true;
+			printableCount++;
 		}
 	}
 	
+	// Убрали лишние логи для производительности
+	
 	// Проходим по всем страницам, где есть символы
+	int pageCount = 0;
 	for (int page = 0; page < 256; ++page) {
 		if (!pageUsed[page]) continue;
+		pageCount++;
+		// Убрали лишние логи для производительности
 		
 		Texture* tex = (page < (int)pages.size() && pages[page] != nullptr) ? pages[page] : pages[0];
 		
@@ -88,8 +90,9 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 		glActiveTexture(GL_TEXTURE0);
 		if (shader != nullptr) {
 			shader->use(); // ВАЖНО: используем шейдер перед каждым batch->begin()
-			shader->uniform1i("u_useTex", 1); // Устанавливаем ПЕРЕД каждым batch->begin()
-			shader->uniform1i("u_texture", 0); // Устанавливаем текстурный юнит
+			// ВАЖНО: проекция должна быть установлена ДО вызова font->draw() в Menu.cpp
+			// НЕ устанавливаем проекцию здесь - она должна быть установлена в Menu.cpp
+			shader->uniform1i("u_texture", 0);   // sampler → слот 0
 		}
 		batch->begin();
 		batch->texture(tex);
@@ -149,22 +152,9 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 					break;
 			}
 			
-			// ШАГ B: Диагностика - рисуем красную рамку вокруг каждого глифа
-			if (shader != nullptr) {
-				shader->uniform1i("u_useTex", 0); // панели (без текстуры)
-			}
-			batch->color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // красная рамка
-			batch->rect((float)x, (float)y, (float)RES, 1.0f);      // верх
-			batch->rect((float)x, (float)y, 1.0f, (float)RES);    // лев
-			batch->rect((float)x, (float)(y+RES-1), (float)RES, 1.0f); // низ
-			batch->rect((float)(x+RES-1), (float)y, 1.0f, (float)RES); // прав
-			if (shader != nullptr) {
-				shader->uniform1i("u_useTex", 1); // обратно к «тексту»
-			}
-			
 			// Сам глиф (ВАЖНО: индекс в атласе — младший байт)
 			batch->sprite(x, y, RES, RES, 16, glyphIndex, batch->color);
-			// spritesThisPage++; // DEBUG
+			// Убрали лишние логи для производительности
 			x += 8;
 		}
 		
@@ -172,13 +162,9 @@ void Font::draw(Batch2D* batch, Shader* shader, std::wstring text, int x, int y,
 		// std::cout << "[Font] page=" << page << " sprites=" << spritesThisPage << std::endl;
 		
 		// ВАЖНО: убеждаемся, что шейдер используется перед render()
-		if (shader != nullptr) {
-			shader->use();
-		}
+		// (проекция должна быть установлена вызывающим кодом)
+		// Убрали лишние вызовы glGetUniformLocation для производительности
 		batch->render();
 	}
-	
-	// НЕ сбрасываем u_useTex = 0 здесь, так как после font->draw() могут быть еще вызовы font->draw()
-	// Сброс будет сделан в Menu.cpp перед PASS 1 (панели)
 }
 
