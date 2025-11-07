@@ -77,7 +77,7 @@ int main() {
 	}
 
 	Mesh* mesh = buildIsoSurface(field.data(), NX, NY, NZ, 0.0f);
-	glClearColor(0.0f, 0.0f, 0.0f, 1);
+	glClearColor(0.6f, 0.8f, 1.0f, 1.0f); // Небесный бело-голубой фон
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
