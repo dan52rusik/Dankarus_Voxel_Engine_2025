@@ -12,15 +12,13 @@
 using namespace glm;
 
 #include "graphics/Shader.h"
-#include "graphics/Texture.h"
 #include "graphics/Mesh.h"
-#include "graphics/VoxelRenderer.h"
+#include "graphics/MarchingCubes.h"
+#include "noise/OpenSimplex.h"
 #include "window/Window.h"
 #include "window/Events.h"
 #include "window/Camera.h"
-#include "loaders/png_loading.h"
-#include "voxels/voxel.h"
-#include "voxels/Chunk.h"
+#include <vector>
 
 int WIDTH = 1280;
 int HEIGHT = 720;
@@ -44,32 +42,48 @@ int main() {
 	Window::initialize(WIDTH, HEIGHT, "Window 2.0");
 	Events::initialize();
 
-	Shader* shader = load_shader("res/main.glslv", "res/main.glslf");
+	Shader* shader = load_shader("res/mc_vert.glsl", "res/mc_frag.glsl");
 	if (shader == nullptr) {
 		std::cerr << "failed to load shader" << std::endl;
 		Window::terminate();
 		return 1;
 	}
 
-	Texture* texture = load_texture("res/block.png");
-	if (texture == nullptr) {
-		std::cerr << "failed to load texture" << std::endl;
-		delete shader;
-		Window::terminate();
-		return 1;
+	// Build scalar field via OpenSimplex FBM and extract isosurface via Marching Cubes
+	const int NX = 32, NY = 32, NZ = 32; // cell counts
+	const int SX = NX + 1, SY = NY + 1, SZ = NZ + 1; // grid nodes
+	std::vector<float> field;
+	field.resize(SX * SY * SZ);
+
+	OpenSimplex3D noise(1337);
+	const float baseFreq = 0.05f;
+	const int octaves = 6;
+	const float lacunarity = 2.0f;
+	const float gain = 0.5f;
+	const float seaLevel = 16.0f;
+	const float verticalScale = 32.0f;
+
+	for (int y = 0; y < SY; y++) {
+		for (int z = 0; z < SZ; z++) {
+			for (int x = 0; x < SX; x++) {
+				float wx = (float)x;
+				float wy = (float)y;
+				float wz = (float)z;
+				float n = noise.fbm(wx * baseFreq, wy * baseFreq, wz * baseFreq, octaves, lacunarity, gain);
+				float density = n - (wy - seaLevel) / verticalScale;
+				field[(y * SZ + z) * SX + x] = density;
+			}
+		}
 	}
 
-	VoxelRenderer renderer(1024 * 1024 * 8);
-	Chunk* chunk = new Chunk();
-	Mesh* mesh = renderer.render(chunk);
+	Mesh* mesh = buildIsoSurface(field.data(), NX, NY, NZ, 0.0f);
 	glClearColor(0.0f, 0.0f, 0.0f, 1);
 
 	glEnable(GL_DEPTH_TEST);
-	// glEnable(GL_CULL_FACE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
 
-	Camera* camera = new Camera(vec3(0, 0, -30), radians(90.0f));
+	Camera* camera = new Camera(vec3(16, 16, 50), radians(90.0f));
 
 	mat4 model(1.0f);
 	// model = translate(model, vec3(0.5f, 0, 0));
@@ -128,16 +142,13 @@ int main() {
 		shader->use();
 		shader->uniformMatrix("model", model);
 		shader->uniformMatrix("projview", camera->getProjection() * camera->getView());
-		texture->bind();
 		mesh->draw(GL_TRIANGLES);
 		Window::swapBuffers();
 		Events::pullEvents();
 	}
 
 	delete shader;
-	delete texture;
 	delete mesh;
-	delete chunk;
 
 	Window::terminate();
 	return 0;

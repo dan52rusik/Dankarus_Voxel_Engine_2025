@@ -49,6 +49,14 @@ cmake_ninja_workdir = C$:/MyGame/VoxelNoxel/build/
 
 build cmake_object_order_depends_target_VoxelNoxel: phony || .
 
+build CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/graphics/MarchingCubes.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\graphics\MarchingCubes.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\graphics
+
 build CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/graphics/Mesh.cpp || cmake_object_order_depends_target_VoxelNoxel
   CONFIG = Release
   DEFINES = -DGLEW_STATIC
@@ -88,6 +96,14 @@ build CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj: CXX_COMPILER__V
   FLAGS = -O3 -DNDEBUG -std=gnu++17
   OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
   OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\loaders
+
+build CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/noise/OpenSimplex.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\noise\OpenSimplex.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\noise
 
 build CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxel_engine.cpp || cmake_object_order_depends_target_VoxelNoxel
   CONFIG = Release
@@ -145,7 +161,7 @@ build CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj: CXX_COMPILER__VoxelNo
 #############################################
 # Link the executable bin\VoxelNoxel.exe
 
-build bin/VoxelNoxel.exe: CXX_EXECUTABLE_LINKER__VoxelNoxel_Release CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/voxel.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj | C$:/msys64/mingw64/lib/libglew32.dll.a C$:/msys64/mingw64/lib/libpng.dll.a C$:/msys64/mingw64/lib/libz.dll.a
+build bin/VoxelNoxel.exe: CXX_EXECUTABLE_LINKER__VoxelNoxel_Release CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/voxel.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj | C$:/msys64/mingw64/lib/libglew32.dll.a C$:/msys64/mingw64/lib/libpng.dll.a C$:/msys64/mingw64/lib/libz.dll.a
   CONFIG = Release
   FLAGS = -O3 -DNDEBUG
   LINK_LIBRARIES = C:/msys64/mingw64/lib/libglew32.dll.a  -lglfw3  -lopengl32  C:/msys64/mingw64/lib/libpng.dll.a  C:/msys64/mingw64/lib/libz.dll.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
