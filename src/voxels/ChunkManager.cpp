@@ -1,4 +1,5 @@
 #include "ChunkManager.h"
+#include "../maths/voxmaths.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -11,6 +12,10 @@ ChunkManager::ChunkManager()
 }
 
 ChunkManager::~ChunkManager() {
+	clear();
+}
+
+void ChunkManager::clear() {
 	for (auto& pair : chunks) {
 		delete pair.second;
 	}
@@ -23,12 +28,12 @@ std::string ChunkManager::chunkKey(int cx, int cy, int cz) const {
 
 glm::ivec3 ChunkManager::worldToChunk(const glm::vec3& worldPos) const {
 	// Для отрицательных координат нужно правильно вычислять чанк
-	// floor() уже правильно работает для отрицательных чисел
-	// Например: floor(-1/32) = floor(-0.03125) = -1
-	//           floor(-33/32) = floor(-1.03125) = -2
-	int cx = (int)std::floor(worldPos.x / (float)MCChunk::CHUNK_SIZE_X);
-	int cy = (int)std::floor(worldPos.y / (float)MCChunk::CHUNK_SIZE_Y);
-	int cz = (int)std::floor(worldPos.z / (float)MCChunk::CHUNK_SIZE_Z);
+	// floordiv() правильно работает для отрицательных чисел
+	// Например: floordiv(-1, 32) = -1
+	//           floordiv(-33, 32) = -2
+	int cx = floordiv((int)worldPos.x, MCChunk::CHUNK_SIZE_X);
+	int cy = floordiv((int)worldPos.y, MCChunk::CHUNK_SIZE_Y);
+	int cz = floordiv((int)worldPos.z, MCChunk::CHUNK_SIZE_Z);
 	
 	return glm::ivec3(cx, cy, cz);
 }

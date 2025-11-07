@@ -47,7 +47,7 @@ static void drawBevelRect(Batch2D* b, Shader* shader, float x, float y, float w,
 	b->rect(x + w - 2, y, 2, h);
 }
 
-Menu::Menu() : currentState(GameState::MENU), menuAction(MenuAction::NONE), selectedItem(0) {
+Menu::Menu() : currentState(GameState::MENU), menuAction(MenuAction::NONE), selectedItem(0), saveFileExists(false) {
 }
 
 Menu::~Menu() {
@@ -55,25 +55,48 @@ Menu::~Menu() {
 
 GameState Menu::update() {
 	if (currentState == GameState::MENU) {
-		// Главное меню
+		// Главное меню - количество пунктов зависит от наличия сохранения
+		int menuItemCount = saveFileExists ? 4 : 3; // "Новая игра", "Продолжить" (если есть), "Настройки", "Выход"
+		
 		if (Events::jpressed(GLFW_KEY_UP)) {
-			selectedItem = (selectedItem - 1 + 3) % 3;
+			selectedItem = (selectedItem - 1 + menuItemCount) % menuItemCount;
 		}
 		if (Events::jpressed(GLFW_KEY_DOWN)) {
-			selectedItem = (selectedItem + 1) % 3;
+			selectedItem = (selectedItem + 1) % menuItemCount;
 		}
 		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
-			switch (selectedItem) {
-				case 0: // Один игрок (создаём/загружаем мир)
-					menuAction = MenuAction::LOAD_WORLD; // Сначала пытаемся загрузить, если нет - создаём
-					currentState = GameState::PLAYING;
-					break;
-				case 1: // Настройки
-					// TODO: открыть настройки
-					break;
-				case 2: // Выход
-					menuAction = MenuAction::QUIT;
-					break;
+			if (saveFileExists) {
+				// Меню с сохранением: "Новая игра", "Продолжить", "Настройки", "Выход"
+				switch (selectedItem) {
+					case 0: // Новая игра
+						menuAction = MenuAction::CREATE_WORLD;
+						currentState = GameState::PLAYING;
+						break;
+					case 1: // Продолжить
+						menuAction = MenuAction::LOAD_WORLD;
+						currentState = GameState::PLAYING;
+						break;
+					case 2: // Настройки
+						// TODO: открыть настройки
+						break;
+					case 3: // Выход
+						menuAction = MenuAction::QUIT;
+						break;
+				}
+			} else {
+				// Меню без сохранения: "Новая игра", "Настройки", "Выход"
+				switch (selectedItem) {
+					case 0: // Новая игра
+						menuAction = MenuAction::CREATE_WORLD;
+						currentState = GameState::PLAYING;
+						break;
+					case 1: // Настройки
+						// TODO: открыть настройки
+						break;
+					case 2: // Выход
+						menuAction = MenuAction::QUIT;
+						break;
+				}
 			}
 		}
 	} else if (currentState == GameState::PLAYING) {
@@ -139,11 +162,22 @@ void Menu::drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWi
 	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.35f));
 	
 	// Пункты как в Minecraft (только панели, без текста)
-	std::vector<std::wstring> items = {
-		L"Один игрок",
-		L"Настройки",
-		L"Выход"
-	};
+	// Количество пунктов зависит от наличия сохранения
+	std::vector<std::wstring> items;
+	if (saveFileExists) {
+		items = {
+			L"Новая игра",
+			L"Продолжить",
+			L"Настройки",
+			L"Выход"
+		};
+	} else {
+		items = {
+			L"Новая игра",
+			L"Настройки",
+			L"Выход"
+		};
+	}
 	
 	int w = style.buttonW;
 	int h = style.buttonH;
@@ -333,4 +367,12 @@ Menu::MenuAction Menu::getMenuAction() const {
 
 void Menu::clearMenuAction() {
 	menuAction = MenuAction::NONE;
+}
+
+void Menu::setSaveFileExists(bool exists) {
+	saveFileExists = exists;
+}
+
+bool Menu::hasSaveFile() const {
+	return saveFileExists;
 }

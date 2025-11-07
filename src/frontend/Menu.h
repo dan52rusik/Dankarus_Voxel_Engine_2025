@@ -51,10 +51,15 @@ public:
 	MenuAction getMenuAction() const;
 	void clearMenuAction();
 	
+	// Проверка существования сохранения
+	void setSaveFileExists(bool exists);
+	bool hasSaveFile() const;
+	
 private:
 	GameState currentState;
 	MenuAction menuAction;
 	int selectedItem; // Выбранный пункт меню (для главного меню)
+	bool saveFileExists; // Существует ли сохранение
 	UIStyle style; // Стиль UI в стиле Minecraft
 	
 	// Отрисовка главного меню

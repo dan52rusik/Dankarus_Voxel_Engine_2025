@@ -28,6 +28,9 @@ public:
 	void setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
 	void getNoiseParams(float& baseFreq, int& octaves, float& lacunarity, float& gain, float& baseHeight, float& heightVariation) const;
 	
+	// Очистка всех чанков (для создания нового мира)
+	void clear();
+	
 	// Система воксельных блоков
 	voxel* getVoxel(int x, int y, int z); // Получить воксель по мировым координатам
 	void setVoxel(int x, int y, int z, uint8_t id); // Установить воксель по мировым координатам

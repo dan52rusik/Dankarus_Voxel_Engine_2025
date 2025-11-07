@@ -26,6 +26,8 @@ using namespace glm;
 #include "window/Window.h"
 #include "window/Events.h"
 #include "window/Camera.h"
+#include "maths/FrustumCulling.h"
+#include "files/files.h"
 #include <vector>
 #include <string>
 
@@ -124,8 +126,21 @@ int main() {
 	// Система меню
 	Menu menu;
 	
+	// Проверяем существование сохранения
+	const std::string saveFileName = "world.vxl";
+	bool saveExists = files::file_exists(saveFileName);
+	menu.setSaveFileExists(saveExists);
+	if (saveExists) {
+		std::cout << "[MENU] Save file found: " << saveFileName << std::endl;
+	} else {
+		std::cout << "[MENU] No save file found, will create new world" << std::endl;
+	}
+	
 	// Создаем менеджер чанков для генерации ландшафта
 	ChunkManager chunkManager;
+	
+	// Frustum culling для оптимизации рендеринга
+	Frustum frustum;
 	
 	// Параметры генерации
 	float baseFreq = 0.03f; // Меньшая частота для более плавных холмов
@@ -138,7 +153,6 @@ int main() {
 	
 	// Система сохранения/загрузки
 	WorldSave worldSave;
-	const std::string saveFileName = "world.vxl";
 	
 	// Флаг инициализации мира
 	bool worldInitialized = false;
@@ -164,6 +178,9 @@ int main() {
 	float camY = 0.0f;
 
 	float speed = 5;
+	
+	// Отслеживаем предыдущее состояние для проверки файла сохранения при переходе в меню
+	GameState previousState = GameState::MENU;
 
 	while (!Window::isShouldClose()) {
 		float currentTime = glfwGetTime();
@@ -173,27 +190,51 @@ int main() {
 		// Обновляем меню
 		GameState currentState = menu.update();
 		
+		// Проверяем файл сохранения при переходе в главное меню
+		if (currentState == GameState::MENU && previousState != GameState::MENU) {
+			bool saveExists = files::file_exists(saveFileName);
+			menu.setSaveFileExists(saveExists);
+			if (saveExists) {
+				std::cout << "[MENU] Save file found: " << saveFileName << std::endl;
+			} else {
+				std::cout << "[MENU] No save file found" << std::endl;
+			}
+		}
+		
+		previousState = currentState;
+		
 		// Обрабатываем действия меню
 		Menu::MenuAction action = menu.getMenuAction();
 		if (action == Menu::MenuAction::CREATE_WORLD) {
 			// Создаем новый мир
 			if (!worldInitialized) {
+				// Очищаем старый мир, если был
+				chunkManager.clear();
 				chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 				worldInitialized = true;
+				// Обновляем флаг существования сохранения (новый мир - сохранения нет)
+				menu.setSaveFileExists(false);
 				std::cout << "[GAME] New world created" << std::endl;
 			}
 			menu.clearMenuAction();
 		} else if (action == Menu::MenuAction::LOAD_WORLD) {
 			// Загружаем сохраненный мир
 			if (!worldInitialized) {
+				// Очищаем текущий мир перед загрузкой
+				chunkManager.clear();
 				if (worldSave.load(saveFileName, chunkManager, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
 					std::cout << "[LOAD] World loaded successfully from " << saveFileName << std::endl;
 					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+					worldInitialized = true;
+					// Обновляем флаг существования сохранения
+					menu.setSaveFileExists(true);
 				} else {
-					std::cout << "[LOAD] No saved world found, creating new world" << std::endl;
+					std::cout << "[LOAD] Failed to load world, creating new world" << std::endl;
 					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+					worldInitialized = true;
+					// Если загрузка не удалась, сохранения нет
+					menu.setSaveFileExists(false);
 				}
-				worldInitialized = true;
 			}
 			menu.clearMenuAction();
 		} else if (action == Menu::MenuAction::QUIT) {
@@ -257,6 +298,8 @@ int main() {
 				chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
 				if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
 					std::cout << "[SAVE] World saved successfully to " << saveFileName << std::endl;
+					// Обновляем флаг существования сохранения
+					menu.setSaveFileExists(true);
 				} else {
 					std::cout << "[SAVE] Failed to save world to " << saveFileName << std::endl;
 				}
@@ -411,12 +454,32 @@ int main() {
 			}
 		}
 		
+		// Обновляем frustum для culling
+		mat4 projview = camera->getProjection() * camera->getView();
+		frustum.update(projview);
+		
 		// Отрисовываем Marching Cubes (поверхность земли)
 		shader->use();
-		shader->uniformMatrix("projview", camera->getProjection() * camera->getView());
+		shader->uniformMatrix("projview", projview);
 		
 		for (MCChunk* chunk : visibleChunks) {
 			if (chunk->mesh != nullptr) {
+				// Frustum culling для чанка
+				vec3 chunkMin = chunk->worldPos - vec3(
+					MCChunk::CHUNK_SIZE_X / 2.0f,
+					MCChunk::CHUNK_SIZE_Y / 2.0f,
+					MCChunk::CHUNK_SIZE_Z / 2.0f
+				);
+				vec3 chunkMax = chunk->worldPos + vec3(
+					MCChunk::CHUNK_SIZE_X / 2.0f,
+					MCChunk::CHUNK_SIZE_Y / 2.0f,
+					MCChunk::CHUNK_SIZE_Z / 2.0f
+				);
+				
+				if (!frustum.IsBoxVisible(chunkMin, chunkMax)) {
+					continue; // Пропускаем чанк вне frustum
+				}
+				
 				// Вычисляем матрицу модели для позиционирования чанка в мире
 				mat4 chunkModel = translate(model, chunk->worldPos - vec3(
 					MCChunk::CHUNK_SIZE_X / 2.0f,
@@ -430,11 +493,27 @@ int main() {
 		
 		// Отрисовываем воксельные блоки
 		voxelShader->use();
-		voxelShader->uniformMatrix("projview", camera->getProjection() * camera->getView());
+		voxelShader->uniformMatrix("projview", projview);
 		texture->bind();
 		
 		for (MCChunk* chunk : visibleChunks) {
 			if (chunk->voxelMesh != nullptr) {
+				// Frustum culling для воксельного чанка
+				vec3 chunkMin = chunk->worldPos - vec3(
+					MCChunk::CHUNK_SIZE_X / 2.0f,
+					MCChunk::CHUNK_SIZE_Y / 2.0f,
+					MCChunk::CHUNK_SIZE_Z / 2.0f
+				);
+				vec3 chunkMax = chunk->worldPos + vec3(
+					MCChunk::CHUNK_SIZE_X / 2.0f,
+					MCChunk::CHUNK_SIZE_Y / 2.0f,
+					MCChunk::CHUNK_SIZE_Z / 2.0f
+				);
+				
+				if (!frustum.IsBoxVisible(chunkMin, chunkMax)) {
+					continue; // Пропускаем чанк вне frustum
+				}
+				
 				mat4 chunkModel(1.0f); // Воксели уже в мировых координатах
 				voxelShader->uniformMatrix("model", chunkModel);
 				chunk->voxelMesh->draw(GL_TRIANGLES);
@@ -467,11 +546,17 @@ int main() {
 	}
 
 	// Автосохранение при выходе
-	float bf, l, g, bh, hv;
-	int o;
-	chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
-	worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv);
-	std::cout << "[SAVE] Auto-saved world on exit" << std::endl;
+	if (worldInitialized) {
+		float bf, l, g, bh, hv;
+		int o;
+		chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+		if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
+			std::cout << "[SAVE] Auto-saved world on exit" << std::endl;
+			menu.setSaveFileExists(true);
+		} else {
+			std::cout << "[SAVE] Failed to auto-save world on exit" << std::endl;
+		}
+	}
 	
 	delete shader;
 	delete voxelShader;
