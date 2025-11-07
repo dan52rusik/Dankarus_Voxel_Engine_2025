@@ -20,6 +20,8 @@ using namespace glm;
 #include "voxels/MCChunk.h"
 #include "voxels/voxel.h"
 #include "voxels/WorldSave.h"
+#include "frontend/Menu.h"
+#include "frontend/GameState.h"
 #include "window/Window.h"
 #include "window/Events.h"
 #include "window/Camera.h"
@@ -71,6 +73,9 @@ int main() {
 	
 	VoxelRenderer voxelRenderer(1024 * 1024 * 8);
 
+	// Система меню
+	Menu menu;
+	
 	// Создаем менеджер чанков для генерации ландшафта
 	ChunkManager chunkManager;
 	
@@ -87,14 +92,8 @@ int main() {
 	WorldSave worldSave;
 	const std::string saveFileName = "world.vxl";
 	
-	// Пытаемся загрузить сохраненный мир
-	if (worldSave.load(saveFileName, chunkManager, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
-		std::cout << "[LOAD] World loaded successfully from " << saveFileName << std::endl;
-		chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
-	} else {
-		std::cout << "[LOAD] No saved world found, using default parameters" << std::endl;
-		chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
-	}
+	// Флаг инициализации мира
+	bool worldInitialized = false;
 	
 	// Радиус загрузки чанков вокруг камеры
 	const int renderDistance = 3;
@@ -122,64 +121,108 @@ int main() {
 		float currentTime = glfwGetTime();
 		delta = currentTime - lastTime;
 		lastTime = currentTime;
-
-		if (Events::jpressed(GLFW_KEY_ESCAPE)) {
+		
+		// Обновляем меню
+		GameState currentState = menu.update();
+		
+		// Обрабатываем действия меню
+		Menu::MenuAction action = menu.getMenuAction();
+		if (action == Menu::MenuAction::CREATE_WORLD) {
+			// Создаем новый мир
+			if (!worldInitialized) {
+				chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+				worldInitialized = true;
+				std::cout << "[GAME] New world created" << std::endl;
+			}
+			menu.clearMenuAction();
+		} else if (action == Menu::MenuAction::LOAD_WORLD) {
+			// Загружаем сохраненный мир
+			if (!worldInitialized) {
+				if (worldSave.load(saveFileName, chunkManager, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
+					std::cout << "[LOAD] World loaded successfully from " << saveFileName << std::endl;
+					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+				} else {
+					std::cout << "[LOAD] No saved world found, creating new world" << std::endl;
+					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+				}
+				worldInitialized = true;
+			}
+			menu.clearMenuAction();
+		} else if (action == Menu::MenuAction::QUIT) {
+			// Выход из игры
 			Window::setShouldClose(true);
 		}
-		if (Events::jpressed(GLFW_KEY_TAB)) {
-			Events::toogleCursor();
+		
+		// Если игра на паузе или в меню, не обрабатываем игровой ввод
+		bool inputLocked = (currentState == GameState::MENU || currentState == GameState::PAUSED);
+		
+		// Отрисовываем меню, если оно активно
+		if (currentState == GameState::MENU || currentState == GameState::PAUSED) {
+			menu.draw();
 		}
 		
-		// Тестовая установка блока по нажатию клавиши T
-		if (Events::jpressed(GLFW_KEY_T)) {
-			int bx = (int)camera->position.x;
-			int by = (int)camera->position.y;
-			int bz = (int)camera->position.z;
-			std::cout << "Тестовая установка блока в позиции камеры: (" << bx << ", " << by << ", " << bz << ")" << std::endl;
-			chunkManager.setVoxel(bx, by, bz, 2);
+		// Если игра не инициализирована или в меню, пропускаем игровой цикл
+		if (!worldInitialized || currentState == GameState::MENU) {
+			Window::swapBuffers();
+			Events::pullEvents();
+			continue;
 		}
-		
-		// Сохранение мира по нажатию F5
-		if (Events::jpressed(GLFW_KEY_F5)) {
-			float bf, l, g, bh, hv;
-			int o;
-			chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
-			if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
-				std::cout << "[SAVE] World saved successfully to " << saveFileName << std::endl;
-			} else {
-				std::cout << "[SAVE] Failed to save world to " << saveFileName << std::endl;
+		// Игровой ввод (только если игра не на паузе)
+		if (!inputLocked) {
+			if (Events::jpressed(GLFW_KEY_TAB)) {
+				Events::toogleCursor();
 			}
-		}
-
-		if (Events::pressed(GLFW_KEY_W)) {
-			camera->position += camera->front * delta * speed;
-		}
-		if (Events::pressed(GLFW_KEY_S)) {
-			camera->position -= camera->front * delta * speed;
-		}
-		if (Events::pressed(GLFW_KEY_D)) {
-			camera->position -= camera->right * delta * speed;
-		}
-		if (Events::pressed(GLFW_KEY_A)) {
-			camera->position += camera->right * delta * speed;
-		}
-
-		if (Events::_cursor_locked) {
-			camY += Events::deltaY / Window::height * 2;
-			camX += -Events::deltaX / Window::height * 2;
-
-			if (camY < -radians(89.0f)) {
-				camY = -radians(89.0f);
+			
+			// Тестовая установка блока по нажатию клавиши T
+			if (Events::jpressed(GLFW_KEY_T)) {
+				int bx = (int)camera->position.x;
+				int by = (int)camera->position.y;
+				int bz = (int)camera->position.z;
+				std::cout << "Тестовая установка блока в позиции камеры: (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+				chunkManager.setVoxel(bx, by, bz, 2);
 			}
-			if (camY > radians(89.0f)) {
-				camY = radians(89.0f);
+			
+			// Сохранение мира по нажатию F5
+			if (Events::jpressed(GLFW_KEY_F5)) {
+				float bf, l, g, bh, hv;
+				int o;
+				chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+				if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
+					std::cout << "[SAVE] World saved successfully to " << saveFileName << std::endl;
+				} else {
+					std::cout << "[SAVE] Failed to save world to " << saveFileName << std::endl;
+				}
 			}
 
-			camera->rotation = mat4(1.0f);
-			camera->rotate(camY, camX, 0);
-		}
-		
-		// Обработка кликов мыши для установки/удаления блоков
+			if (Events::pressed(GLFW_KEY_W)) {
+				camera->position += camera->front * delta * speed;
+			}
+			if (Events::pressed(GLFW_KEY_S)) {
+				camera->position -= camera->front * delta * speed;
+			}
+			if (Events::pressed(GLFW_KEY_D)) {
+				camera->position -= camera->right * delta * speed;
+			}
+			if (Events::pressed(GLFW_KEY_A)) {
+				camera->position += camera->right * delta * speed;
+			}
+
+			if (Events::_cursor_locked) {
+				camY += Events::deltaY / Window::height * 2;
+				camX += -Events::deltaX / Window::height * 2;
+
+				if (camY < -radians(89.0f)) {
+					camY = -radians(89.0f);
+				}
+				if (camY > radians(89.0f)) {
+					camY = radians(89.0f);
+				}
+
+				camera->rotation = mat4(1.0f);
+				camera->rotate(camY, camX, 0);
+			}
+			
+			// Обработка кликов мыши для установки/удаления блоков
 		{
 			vec3 end;
 			vec3 norm;
@@ -266,6 +309,26 @@ int main() {
 					}
 				}
 			}
+		}
+		}
+		
+		// Если игра на паузе, не обновляем и не отрисовываем мир
+		if (currentState == GameState::PAUSED) {
+			// Отрисовываем полупрозрачный фон для паузы
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDisable(GL_DEPTH_TEST);
+			
+			// Простой полупрозрачный фон (пока без GUI системы)
+			// В будущем можно добавить полноценное меню паузы
+			
+			glDisable(GL_BLEND);
+			glEnable(GL_DEPTH_TEST);
+			
+			Window::swapBuffers();
+			Events::pullEvents();
+			continue;
 		}
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
