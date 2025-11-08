@@ -49,6 +49,72 @@ int attrs[] = {
 		3,2,  0 //null terminator
 };
 
+// Функция для отрисовки прицела в центре экрана
+void drawCrosshair(Batch2D* batch, Shader* uiShader, int windowWidth, int windowHeight) {
+	// Настраиваем UI состояние
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	
+	// Используем UI шейдер
+	glActiveTexture(GL_TEXTURE0);
+	uiShader->use();
+	uiShader->uniform1i("u_texture", 0);
+	
+	// Устанавливаем ортографическую проекцию для UI (как в Menu)
+	mat4 uiProj = glm::ortho(0.0f, (float)windowWidth, (float)windowHeight, 0.0f);
+	uiShader->uniformMatrix("u_projview", uiProj);
+	
+	// Начинаем батч
+	batch->begin();
+	
+	// Размеры прицела
+	float crosshairSize = 20.0f;  // Длина линий
+	float crosshairThickness = 2.0f;  // Толщина линий
+	float crosshairGap = 4.0f;  // Разрыв в центре
+	
+	// Цвет прицела (белый с небольшой прозрачностью для лучшей видимости)
+	batch->color = vec4(1.0f, 1.0f, 1.0f, 0.8f);
+	
+	// Центр экрана
+	float centerX = windowWidth / 2.0f;
+	float centerY = windowHeight / 2.0f;
+	
+	// Вертикальная линия (верхняя часть)
+	batch->rect(centerX - crosshairThickness / 2.0f, 
+	           centerY - crosshairSize / 2.0f - crosshairGap / 2.0f,
+	           crosshairThickness, 
+	           crosshairSize / 2.0f - crosshairGap / 2.0f);
+	
+	// Вертикальная линия (нижняя часть)
+	batch->rect(centerX - crosshairThickness / 2.0f, 
+	           centerY + crosshairGap / 2.0f,
+	           crosshairThickness, 
+	           crosshairSize / 2.0f - crosshairGap / 2.0f);
+	
+	// Горизонтальная линия (левая часть)
+	batch->rect(centerX - crosshairSize / 2.0f - crosshairGap / 2.0f,
+	           centerY - crosshairThickness / 2.0f,
+	           crosshairSize / 2.0f - crosshairGap / 2.0f,
+	           crosshairThickness);
+	
+	// Горизонтальная линия (правая часть)
+	batch->rect(centerX + crosshairGap / 2.0f,
+	           centerY - crosshairThickness / 2.0f,
+	           crosshairSize / 2.0f - crosshairGap / 2.0f,
+	           crosshairThickness);
+	
+	// Рендерим батч
+	batch->render();
+	
+	// Восстанавливаем состояние
+	batch->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
+}
+
 int main() {
 	Window::initialize(WIDTH, HEIGHT, "Window 2.0");
 	Events::initialize();
@@ -539,6 +605,11 @@ int main() {
 			glDisable(GL_BLEND);
 			glEnable(GL_DEPTH_TEST);
 			glEnable(GL_CULL_FACE);
+		}
+		
+		// Отрисовываем прицел во время игры (не в меню и не на паузе)
+		if (currentState == GameState::PLAYING) {
+			drawCrosshair(batch, uiShader, Window::width, Window::height);
 		}
 		
 		Window::swapBuffers();
