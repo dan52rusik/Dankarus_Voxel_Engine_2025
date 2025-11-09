@@ -30,6 +30,7 @@ using namespace glm;
 #include "files/files.h"
 #include <vector>
 #include <string>
+#include <cmath>
 
 int WIDTH = 1280;
 int HEIGHT = 720;
@@ -48,6 +49,110 @@ float vertices[] = {
 int attrs[] = {
 		3,2,  0 //null terminator
 };
+
+// Функция для отрисовки контура блока (wireframe всего куба)
+void drawBlockOutline(Shader* linesShader, const mat4& projview, int blockX, int blockY, int blockZ, const vec3& faceNormal) {
+	// Цвет контура (белый с хорошей видимостью)
+	const vec4 outlineColor(1.0f, 1.0f, 1.0f, 1.0f);
+	
+	// Воксельные блоки рендерятся с центром в целых координатах (blockX, blockY, blockZ)
+	// Грани блока идут от (center - 0.5) до (center + 0.5)
+	// Контур должен точно совпадать с гранями блока
+	float x0 = (float)blockX - 0.5f;
+	float x1 = (float)blockX + 0.5f;
+	float y0 = (float)blockY - 0.5f;
+	float y1 = (float)blockY + 0.5f;
+	float z0 = (float)blockZ - 0.5f;
+	float z1 = (float)blockZ + 0.5f;
+	
+	// Небольшое смещение наружу для избежания z-fighting
+	const float epsilon = 0.001f;
+	vec3 center((float)blockX, (float)blockY, (float)blockZ);
+	
+	// Функция для смещения вершины наружу от центра
+	auto offsetVertex = [&center, epsilon](float x, float y, float z) -> vec3 {
+		vec3 vertex(x, y, z);
+		vec3 dir = normalize(vertex - center);
+		return vertex + dir * epsilon;
+	};
+	
+	// Вектор вершин для всех 12 ребер куба (wireframe)
+	std::vector<float> vertices;
+	vertices.reserve(24 * 7); // 24 вершины (12 ребер * 2 точки) * 7 компонентов
+	
+	auto addLine = [&vertices, &outlineColor, &offsetVertex](float x1, float y1, float z1, float x2, float y2, float z2) {
+		// Смещаем вершины наружу от центра для избежания z-fighting
+		vec3 v1 = offsetVertex(x1, y1, z1);
+		vec3 v2 = offsetVertex(x2, y2, z2);
+		
+		// Первая точка линии
+		vertices.push_back(v1.x);
+		vertices.push_back(v1.y);
+		vertices.push_back(v1.z);
+		vertices.push_back(outlineColor.r);
+		vertices.push_back(outlineColor.g);
+		vertices.push_back(outlineColor.b);
+		vertices.push_back(outlineColor.a);
+		// Вторая точка линии
+		vertices.push_back(v2.x);
+		vertices.push_back(v2.y);
+		vertices.push_back(v2.z);
+		vertices.push_back(outlineColor.r);
+		vertices.push_back(outlineColor.g);
+		vertices.push_back(outlineColor.b);
+		vertices.push_back(outlineColor.a);
+	};
+	
+	// Рисуем все 12 ребер куба (wireframe)
+	// Y - вертикальная ось (вверх)
+	// Нижняя грань (y = y0)
+	addLine(x0, y0, z0, x1, y0, z0); // переднее нижнее ребро (по X)
+	addLine(x1, y0, z0, x1, y0, z1); // правое нижнее ребро (по Z)
+	addLine(x1, y0, z1, x0, y0, z1); // заднее нижнее ребро (по X)
+	addLine(x0, y0, z1, x0, y0, z0); // левое нижнее ребро (по Z)
+	
+	// Верхняя грань (y = y1)
+	addLine(x0, y1, z0, x1, y1, z0); // переднее верхнее ребро (по X)
+	addLine(x1, y1, z0, x1, y1, z1); // правое верхнее ребро (по Z)
+	addLine(x1, y1, z1, x0, y1, z1); // заднее верхнее ребро (по X)
+	addLine(x0, y1, z1, x0, y1, z0); // левое верхнее ребро (по Z)
+	
+	// Вертикальные ребра (по Y)
+	addLine(x0, y0, z0, x0, y1, z0); // переднее левое
+	addLine(x1, y0, z0, x1, y1, z0); // переднее правое
+	addLine(x1, y0, z1, x1, y1, z1); // заднее правое
+	addLine(x0, y0, z1, x0, y1, z1); // заднее левое
+	
+	if (vertices.empty()) {
+		return; // Нечего рисовать
+	}
+	
+	// Создаем временный Mesh для линий
+	const int lineAttrs[] = {3, 4, 0}; // позиция (3), цвет (4)
+	Mesh lineMesh(vertices.data(), vertices.size() / 7, lineAttrs);
+	
+	// Настраиваем состояние для отрисовки линий
+	glDisable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE); // Не пишем в буфер глубины
+	glDepthFunc(GL_LEQUAL); // Контур виден даже если он точно на грани
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glLineWidth(2.5f); // Толщина линии (немного толще для лучшей видимости)
+	
+	// Используем шейдер для линий
+	linesShader->use();
+	linesShader->uniformMatrix("u_projview", projview);
+	
+	// Рисуем линии
+	lineMesh.draw(GL_LINES);
+	
+	// Восстанавливаем состояние
+	glLineWidth(1.0f);
+	glDepthMask(GL_TRUE); // Восстанавливаем запись в буфер глубины
+	glDisable(GL_BLEND);
+	glEnable(GL_CULL_FACE);
+}
 
 // Функция для отрисовки прицела в центре экрана
 void drawCrosshair(Batch2D* batch, Shader* uiShader, int windowWidth, int windowHeight) {
@@ -144,6 +249,14 @@ int main() {
 	Shader* uiShader = load_shader("res/shaders/ui.glslv", "res/shaders/ui.glslf");
 	if (uiShader == nullptr) {
 		std::cerr << "failed to load UI shader" << std::endl;
+		Window::terminate();
+		return 1;
+	}
+	
+	// Загружаем шейдер для линий (для контура блока)
+	Shader* linesShader = load_shader("res/shaders/lines.glslv", "res/shaders/lines.glslf");
+	if (linesShader == nullptr) {
+		std::cerr << "failed to load lines shader" << std::endl;
 		Window::terminate();
 		return 1;
 	}
@@ -247,6 +360,13 @@ int main() {
 	
 	// Отслеживаем предыдущее состояние для проверки файла сохранения при переходе в меню
 	GameState previousState = GameState::MENU;
+	
+	// Переменные для отрисовки контура блока под курсором
+	bool hasTargetBlock = false;
+	int targetBlockX = 0;
+	int targetBlockY = 0;
+	int targetBlockZ = 0;
+	vec3 targetBlockNormal(0.0f);
 
 	while (!Window::isShouldClose()) {
 		float currentTime = glfwGetTime();
@@ -406,7 +526,20 @@ int main() {
 			vec3 iend;
 			
 			// Сначала проверяем воксельные блоки
-			voxel* vox = chunkManager.rayCast(camera->position, camera->front, 10.0f, end, norm, iend);
+			// Увеличиваем расстояние raycast для лучшего определения блоков
+			voxel* vox = chunkManager.rayCast(camera->position, camera->front, 15.0f, end, norm, iend);
+			
+			// Сохраняем информацию о блоке под курсором для отрисовки контура
+			if (vox != nullptr && vox->id != 0) {
+				hasTargetBlock = true;
+				// Используем точные координаты из raycast (iend уже содержит целочисленные координаты блока)
+				targetBlockX = (int)iend.x;
+				targetBlockY = (int)iend.y;
+				targetBlockZ = (int)iend.z;
+				targetBlockNormal = norm;
+			} else {
+				hasTargetBlock = false;
+			}
 			
 			if (vox != nullptr) {
 				// Нашли воксельный блок
@@ -586,6 +719,12 @@ int main() {
 			}
 		}
 		
+		// Отрисовываем контур блока под курсором (только во время игры и если есть цель)
+		// Используем уже вычисленный projview из предыдущего рендеринга
+		if (currentState == GameState::PLAYING && hasTargetBlock) {
+			drawBlockOutline(linesShader, projview, targetBlockX, targetBlockY, targetBlockZ, targetBlockNormal);
+		}
+		
 		// Отрисовываем меню паузы поверх мира
 		if (currentState == GameState::PAUSED) {
 			// UI state: отключаем cull и depth, включаем blend
@@ -632,6 +771,7 @@ int main() {
 	delete shader;
 	delete voxelShader;
 	delete uiShader;
+	delete linesShader;
 	delete texture;
 	delete font;
 	delete batch;
