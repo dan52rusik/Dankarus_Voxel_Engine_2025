@@ -37,6 +37,11 @@ vec2 rot(vec2 p) {
     return mat2(0.866, -0.5, 0.5, 0.866) * p; // ~30°
 }
 
+// Лёгкий поворот домена для земли (отдельная функция для разнообразия)
+vec2 rot2(vec2 p) {
+    return mat2(0.866, -0.5, 0.5, 0.866) * p; // ~30°
+}
+
 float fbm(vec2 p) {
     // константная развёртка вместо динамического i<octaves
     const int O = 4;
@@ -51,6 +56,60 @@ float fbm(vec2 p) {
     }
     
     return value;
+}
+
+// --- вспомогательная палитра земли (5 тонов, тёплых) ---
+const vec3 D0 = vec3(0.40, 0.29, 0.20);
+const vec3 D1 = vec3(0.37, 0.27, 0.17);
+const vec3 D2 = vec3(0.33, 0.25, 0.16);
+const vec3 D3 = vec3(0.46, 0.34, 0.22);
+const vec3 D4 = vec3(0.30, 0.22, 0.15);
+
+// линейная интерполяция между соседними цветами палитры
+vec3 dirtPalette(float t) {
+    t = clamp(t, 0.0, 1.0);
+    float x = t * 4.0;
+    float f = fract(x);
+    int i = int(floor(x));
+    vec3 c0 = (i == 0) ? D0 : (i == 1) ? D1 : (i == 2) ? D2 : D3;
+    vec3 c1 = (i == 0) ? D1 : (i == 1) ? D2 : (i == 2) ? D3 : D4;
+    return mix(c0, c1, f);
+}
+
+// генератор оттенка и маски земли
+struct DirtTintOut {
+    vec3 color;
+    float mask;
+};
+
+DirtTintOut makeDirtTint(vec3 N, float h, vec2 wp) {
+    DirtTintOut o;
+    
+    // макро- и микро-вариации тона
+    float macro = fbm(rot2(wp) * 0.05);    // крупные пятна
+    float micro = vnoise(wp * 0.75);       // зерно
+    float randCh = hash(floor(wp * 0.25)); // «клоки»/пятна на тайлах
+    
+    // индекс палитры (0..1) — теплота/насыщенность земли
+    float shadeT = clamp(0.6 * macro + 0.3 * micro + 0.2 * randCh, 0.0, 1.0);
+    vec3 dirtCol = dirtPalette(shadeT);
+    
+    // «влажность»: ниже по высоте темнее, плюс вариации
+    float moisture = clamp(1.0 - h + 0.15 * macro, 0.0, 1.0);
+    dirtCol *= mix(1.0, 0.82, moisture); // влажная земля темнее и чуть менее насыщенная
+    
+    // маска, где земля проявляется сильнее:
+    // — на склонах (грунт просвечивает),
+    // — на средних высотах,
+    // — с шумовым варьированием по краям
+    float slope = clamp(1.0 - abs(N.y), 0.0, 1.0);
+    float slopeMask = smoothstep(0.35, 0.85, slope);
+    float heightMask = 1.0 - smoothstep(0.65, 0.85, h); // меньше сверху
+    float edgeNoise = 0.7 + 0.3 * vnoise(wp * 1.5);
+    o.mask = clamp(slopeMask * heightMask * edgeNoise, 0.0, 1.0);
+    o.color = dirtCol;
+    
+    return o;
 }
 
 // биом
@@ -107,6 +166,14 @@ void main() {
     float h = clamp((a_worldPos.y - minH) / max(0.1, maxH - minH), 0.0, 1.0);
     
     vec3 base = biomeColor(h, slope, N);
+    
+    // Оттенки земли как в 7DTD
+    DirtTintOut dt = makeDirtTint(N, h, a_worldPos.xz);
+    
+    // Аккуратно «подкрашиваем» базовый цвет:
+    // чуть тёплый крен и локальные пятна, без убийства биома
+    vec3 tinted = mix(base, dt.color, 0.35); // сила локального тона
+    base = mix(base, tinted, dt.mask);       // где маска сильнее — виднее земля
     
     // Снимаем сеточность FBM через поворот домена
     float detail = fbm(rot(a_worldPos.xz) * 0.15);

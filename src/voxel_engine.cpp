@@ -327,14 +327,16 @@ int main() {
 	// Система меню
 	Menu menu;
 	
-	// Проверяем существование сохранения
+	// Проверяем существование сохранения (старый способ - больше не используется)
+	// Теперь используем систему миров в папке worlds/
 	const std::string saveFileName = "world.vxl";
 	bool saveExists = files::file_exists(saveFileName);
-	menu.setSaveFileExists(saveExists);
+	// Не устанавливаем флаг saveFileExists на основе старого файла
+	// menu.setSaveFileExists(saveExists);
 	if (saveExists) {
-		std::cout << "[MENU] Save file found: " << saveFileName << std::endl;
+		std::cout << "[MENU] Old save file found: " << saveFileName << " (ignored, using worlds/ system)" << std::endl;
 	} else {
-		std::cout << "[MENU] No save file found, will create new world" << std::endl;
+		std::cout << "[MENU] No old save file found" << std::endl;
 	}
 	
 	// Создаем менеджер чанков для генерации ландшафта
@@ -354,6 +356,9 @@ int main() {
 	
 	// Система сохранения/загрузки
 	WorldSave worldSave;
+	
+	// Путь к текущему миру
+	std::string currentWorldPath = "";
 	
 	// Флаг инициализации мира
 	bool worldInitialized = false;
@@ -402,15 +407,29 @@ int main() {
 		// Обновляем меню
 		GameState currentState = menu.update();
 		
-		// Проверяем файл сохранения при переходе в главное меню
-		if (currentState == GameState::MENU && previousState != GameState::MENU) {
-			bool saveExists = files::file_exists(saveFileName);
-			menu.setSaveFileExists(saveExists);
-			if (saveExists) {
-				std::cout << "[MENU] Save file found: " << saveFileName << std::endl;
-			} else {
-				std::cout << "[MENU] No save file found" << std::endl;
+		// Обновляем список миров при переходе в окно выбора мира
+		if (currentState == GameState::WORLD_SELECT && previousState != GameState::WORLD_SELECT) {
+			menu.refreshWorldList();
+			// Сбрасываем флаг существования сохранения, так как используем систему миров
+			menu.setSaveFileExists(false);
+		}
+		
+		// Сбрасываем инициализацию мира при переходе в меню или окно выбора мира
+		if ((currentState == GameState::MENU || currentState == GameState::WORLD_SELECT) && 
+		    (previousState == GameState::PLAYING || previousState == GameState::PAUSED)) {
+			// Сохраняем текущий мир перед выходом
+			if (worldInitialized && !currentWorldPath.empty()) {
+				float bf, l, g, bh, hv;
+				int o;
+				chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+				worldSave.save(currentWorldPath, chunkManager, seed, bf, o, l, g, bh, hv);
+				std::cout << "[GAME] World saved before exit to menu: " << currentWorldPath << std::endl;
 			}
+			// Сбрасываем инициализацию мира
+			worldInitialized = false;
+			currentWorldPath = "";
+			chunkManager.clear();
+			std::cout << "[GAME] World uninitialized, ready for new world" << std::endl;
 		}
 		
 		previousState = currentState;
@@ -419,29 +438,84 @@ int main() {
 		Menu::MenuAction action = menu.getMenuAction();
 		if (action == Menu::MenuAction::CREATE_WORLD) {
 			// Создаем новый мир
+			// Всегда очищаем старый мир перед созданием нового
+			if (worldInitialized) {
+				chunkManager.clear();
+				worldInitialized = false;
+				currentWorldPath = "";
+			}
 			if (!worldInitialized) {
+				// Получаем seed и название мира из меню
+				seed = menu.getWorldSeed();
+				std::string worldName = menu.getWorldName();
+				
+				// Формируем имя файла из названия мира (убираем недопустимые символы)
+				std::string safeName = worldName;
+				for (char& c : safeName) {
+					if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+						c = '_';
+					}
+				}
+#ifdef _WIN32
+				std::string saveFileName = "worlds\\" + safeName + ".vxl";
+#else
+				std::string saveFileName = "worlds/" + safeName + ".vxl";
+#endif
+				currentWorldPath = saveFileName;
+				
 				// Очищаем старый мир, если был
 				chunkManager.clear();
+				chunkManager.setSeed(seed); // Устанавливаем seed для генерации мира
 				chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 				worldInitialized = true;
-				// Обновляем флаг существования сохранения (новый мир - сохранения нет)
-				menu.setSaveFileExists(false);
-				std::cout << "[GAME] New world created" << std::endl;
+				
+				// Сохраняем мир сразу после создания, чтобы он появился в списке
+				float bf, l, g, bh, hv;
+				int o;
+				chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+				if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
+					std::cout << "[GAME] New world created and saved: name='" << worldName << "', seed=" << seed << ", path=" << saveFileName << std::endl;
+					menu.setSaveFileExists(true);
+					// Обновляем список миров после создания
+					menu.refreshWorldList();
+				} else {
+					std::cout << "[GAME] New world created but failed to save: name='" << worldName << "', seed=" << seed << ", path=" << saveFileName << std::endl;
+					menu.setSaveFileExists(false);
+				}
 			}
 			menu.clearMenuAction();
 		} else if (action == Menu::MenuAction::LOAD_WORLD) {
 			// Загружаем сохраненный мир
+			// Всегда очищаем текущий мир перед загрузкой нового
+			if (worldInitialized) {
+				chunkManager.clear();
+				worldInitialized = false;
+				currentWorldPath = "";
+			}
 			if (!worldInitialized) {
+				// Получаем путь к выбранному миру
+				std::string saveFileName = menu.getSelectedWorldPath();
+				if (saveFileName.empty()) {
+					// Если путь пустой, выводим ошибку и не загружаем
+					std::cout << "[LOAD] Error: No world selected, cannot load" << std::endl;
+					menu.clearMenuAction();
+					continue;
+				}
+				currentWorldPath = saveFileName;
+				
+				std::cout << "[LOAD] Attempting to load world from: " << saveFileName << std::endl;
+				
 				// Очищаем текущий мир перед загрузкой
 				chunkManager.clear();
 				if (worldSave.load(saveFileName, chunkManager, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
-					std::cout << "[LOAD] World loaded successfully from " << saveFileName << std::endl;
+					std::cout << "[LOAD] World loaded successfully from " << saveFileName << " (seed: " << seed << ")" << std::endl;
+					chunkManager.setSeed(seed);
 					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 					worldInitialized = true;
 					// Обновляем флаг существования сохранения
 					menu.setSaveFileExists(true);
 				} else {
-					std::cout << "[LOAD] Failed to load world, creating new world" << std::endl;
+					std::cout << "[LOAD] Failed to load world from " << saveFileName << ", creating new world" << std::endl;
 					chunkManager.setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 					worldInitialized = true;
 					// Если загрузка не удалась, сохранения нет
@@ -455,12 +529,12 @@ int main() {
 		}
 		
 		// Если игра на паузе или в меню, не обрабатываем игровой ввод
-		bool inputLocked = (currentState == GameState::MENU || currentState == GameState::PAUSED);
+		bool inputLocked = (currentState == GameState::MENU || currentState == GameState::WORLD_SELECT || currentState == GameState::CREATE_WORLD || currentState == GameState::PAUSED);
 		
-		// Если игра не инициализирована или в меню, пропускаем игровой цикл
-		if (!worldInitialized || currentState == GameState::MENU) {
+		// Если игра не инициализирована или в меню/окне выбора мира/окне создания мира, пропускаем игровой цикл
+		if (!worldInitialized || currentState == GameState::MENU || currentState == GameState::WORLD_SELECT || currentState == GameState::CREATE_WORLD) {
 			// Отрисовываем только меню
-			if (currentState == GameState::MENU) {
+			if (currentState == GameState::MENU || currentState == GameState::WORLD_SELECT || currentState == GameState::CREATE_WORLD) {
 				// Убеждаемся, что viewport установлен правильно
 				glViewport(0, 0, Window::fbWidth > 0 ? Window::fbWidth : Window::width, 
 				                  Window::fbHeight > 0 ? Window::fbHeight : Window::height);
@@ -505,15 +579,21 @@ int main() {
 			
 			// Сохранение мира по нажатию F5
 			if (Events::jpressed(GLFW_KEY_F5)) {
-				float bf, l, g, bh, hv;
-				int o;
-				chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
-				if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
-					std::cout << "[SAVE] World saved successfully to " << saveFileName << std::endl;
-					// Обновляем флаг существования сохранения
-					menu.setSaveFileExists(true);
+				if (!currentWorldPath.empty()) {
+					float bf, l, g, bh, hv;
+					int o;
+					chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
+					if (worldSave.save(currentWorldPath, chunkManager, seed, bf, o, l, g, bh, hv)) {
+						std::cout << "[SAVE] World saved successfully to " << currentWorldPath << std::endl;
+						// Обновляем флаг существования сохранения
+						menu.setSaveFileExists(true);
+						// Обновляем список миров
+						menu.refreshWorldList();
+					} else {
+						std::cout << "[SAVE] Failed to save world to " << currentWorldPath << std::endl;
+					}
 				} else {
-					std::cout << "[SAVE] Failed to save world to " << saveFileName << std::endl;
+					std::cout << "[SAVE] No world path set, cannot save" << std::endl;
 				}
 			}
 
@@ -788,13 +868,15 @@ int main() {
 	}
 
 	// Автосохранение при выходе
-	if (worldInitialized) {
+	if (worldInitialized && !currentWorldPath.empty()) {
 		float bf, l, g, bh, hv;
 		int o;
 		chunkManager.getNoiseParams(bf, o, l, g, bh, hv);
-		if (worldSave.save(saveFileName, chunkManager, seed, bf, o, l, g, bh, hv)) {
-			std::cout << "[SAVE] Auto-saved world on exit" << std::endl;
+		if (worldSave.save(currentWorldPath, chunkManager, seed, bf, o, l, g, bh, hv)) {
+			std::cout << "[SAVE] Auto-saved world on exit to " << currentWorldPath << std::endl;
 			menu.setSaveFileExists(true);
+			// Обновляем список миров
+			menu.refreshWorldList();
 		} else {
 			std::cout << "[SAVE] Failed to auto-save world on exit" << std::endl;
 		}

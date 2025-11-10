@@ -135,6 +135,12 @@ void ChunkManager::getNoiseParams(float& baseFreq, int& octaves, float& lacunari
 	heightVariation = this->heightVariation;
 }
 
+void ChunkManager::setSeed(int64_t seed) {
+	// Пересоздаем объект noise с новым seed используя placement new
+	noise.~OpenSimplex3D();
+	new (&noise) OpenSimplex3D(seed);
+}
+
 voxel* ChunkManager::getVoxel(int x, int y, int z) {
 	glm::ivec3 chunkPos = worldToChunk(glm::vec3(x, y, z));
 	std::string key = chunkKey(chunkPos.x, chunkPos.y, chunkPos.z);

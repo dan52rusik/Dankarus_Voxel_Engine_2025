@@ -55,6 +55,16 @@ public:
 	void setSaveFileExists(bool exists);
 	bool hasSaveFile() const;
 	
+	// Получить данные создания мира
+	std::string getWorldName() const;
+	int getWorldSeed() const;
+	
+	// Получить выбранный мир из списка
+	std::string getSelectedWorldPath() const;
+	
+	// Обновить список миров
+	void refreshWorldList();
+	
 private:
 	GameState currentState;
 	MenuAction menuAction;
@@ -62,14 +72,35 @@ private:
 	bool saveFileExists; // Существует ли сохранение
 	UIStyle style; // Стиль UI в стиле Minecraft
 	
+	// Данные окна создания мира
+	std::string worldName; // Название мира
+	std::string seedInput; // Введенный seed (строка)
+	int worldSeed; // Сгенерированный seed
+	int createWorldSelectedItem; // Выбранный пункт в окне создания мира (0 - название, 1 - seed, 2 - создать, 3 - назад)
+	bool seedInputActive; // Активно ли поле ввода seed
+	
+	// Данные окна выбора мира
+	std::vector<std::string> worldList; // Список миров (имена файлов)
+	int worldSelectSelectedItem; // Выбранный мир в списке
+	std::string worldsPath; // Путь к папке worlds
+	
 	// Отрисовка главного меню
 	void drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
 	// Отрисовка меню паузы
 	void drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
+	// Отрисовка окна выбора мира
+	void drawWorldSelectMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
+	
+	// Отрисовка окна создания мира
+	void drawCreateWorldMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
+	
 	// Вспомогательная функция для отрисовки кнопки
 	void drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text, int x, int y, int width, int height, bool selected);
+	
+	// Вспомогательная функция для отрисовки текстового поля
+	void drawTextField(Batch2D* batch, Font* font, Shader* shader, const std::string& label, const std::string& value, int x, int y, int width, int height, bool selected, bool active);
 };
 
 #endif /* FRONTEND_MENU_H_ */

@@ -27,6 +27,7 @@ public:
 	// Параметры генерации
 	void setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
 	void getNoiseParams(float& baseFreq, int& octaves, float& lacunarity, float& gain, float& baseHeight, float& heightVariation) const;
+	void setSeed(int64_t seed); // Установить seed для генерации мира
 	
 	// Очистка всех чанков (для создания нового мира)
 	void clear();
