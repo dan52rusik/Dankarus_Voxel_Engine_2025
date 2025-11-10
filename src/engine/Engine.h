@@ -18,6 +18,10 @@ class VoxelRenderer;
 class Frustum;
 class WorldManager;
 
+namespace lighting {
+    class LightingSystem;
+}
+
 class Engine {
 public:
     Engine();
@@ -42,6 +46,7 @@ public:
     WorldSave* getWorldSave() const { return worldSave; }
     Frustum* getFrustum() const { return frustum; }
     WorldManager* getWorldManager() const { return worldManager; }
+    lighting::LightingSystem* getLightingSystem() const { return lightingSystem; }
     
     // Параметры
     int WIDTH = 1280;
@@ -68,6 +73,9 @@ public:
     int targetBlockZ = 0;
     glm::vec3 targetBlockNormal;
     
+    // Выбранный блок (1-4)
+    int selectedBlockId = 1;
+    
 private:
     bool loadResources();
     void cleanupResources();
@@ -89,5 +97,6 @@ private:
     WorldSave* worldSave = nullptr;
     Frustum* frustum = nullptr;
     WorldManager* worldManager = nullptr;
+    lighting::LightingSystem* lightingSystem = nullptr;
 };
 

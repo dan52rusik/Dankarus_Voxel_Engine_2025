@@ -2,9 +2,11 @@
 #include "Mesh.h"
 #include "../voxels/MCChunk.h"
 #include "../voxels/voxel.h"
+#include "../lighting/LightingSystem.h"
+#include "../lighting/Lighting.h"
 #include <glm/glm.hpp>
 
-#define VERTEX_SIZE (3 + 2 + 1) // position(3) + texCoord(2) + light(1)
+#define VERTEX_SIZE (3 + 2 + 1 + 1) // position(3) + texCoord(2) + light(1) + blockId(1)
 
 // Простая проверка: если координата внутри чанка, проверяем блок, иначе считаем, что блок не заблокирован
 static bool isBlocked(MCChunk* chunk, MCChunk** nearbyChunks, int lx, int ly, int lz) {
@@ -35,15 +37,16 @@ static bool isBlocked(MCChunk* chunk, MCChunk** nearbyChunks, int lx, int ly, in
 	return (vox != nullptr && vox->id != 0);
 }
 
-#define VERTEX(INDEX, X,Y,Z, U,V, L) buffer[INDEX+0] = (X);\
+#define VERTEX(INDEX, X,Y,Z, U,V, L, ID) buffer[INDEX+0] = (X);\
 								  buffer[INDEX+1] = (Y);\
 								  buffer[INDEX+2] = (Z);\
 								  buffer[INDEX+3] = (U);\
 								  buffer[INDEX+4] = (V);\
 								  buffer[INDEX+5] = (L);\
+								  buffer[INDEX+6] = (ID);\
 								  INDEX += VERTEX_SIZE;
 
-int chunk_attrs[] = {3,2,1, 0};
+int chunk_attrs[] = {3,2,1,1, 0}; // position(3), texCoord(2), light(1), blockId(1)
 
 VoxelRenderer::VoxelRenderer(size_t capacity) : capacity(capacity) {
 	buffer = new float[capacity * VERTEX_SIZE * 6];
@@ -53,7 +56,7 @@ VoxelRenderer::~VoxelRenderer(){
 	delete[] buffer;
 }
 
-Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks){
+Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::LightingSystem* lightingSystem){
 	size_t index = 0;
 	
 	for (int y = 0; y < MCChunk::CHUNK_SIZE_Y; y++){
@@ -65,6 +68,7 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks){
 				}
 				
 				unsigned int id = vox->id;
+				float blockId = (float)id;
 				
 				// Вычисляем UV координаты из атласа (16x16 блоков)
 				float uvsize = 1.0f/16.0f;
@@ -78,74 +82,116 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks){
 				
 				// Верхняя грань
 				if (!isBlocked(chunk, nearbyChunks, x, y+1, z)){
-					float l = 1.0f;
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l);
+					float l = 1.0f; // По умолчанию максимальное освещение
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(0.0f, 1.0f, 0.0f); // Нормаль верхней грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v, l);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v, l, blockId);
 				}
 				
 				// Нижняя грань
 				if (!isBlocked(chunk, nearbyChunks, x, y-1, z)){
-					float l = 0.75f;
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v+uvsize, l);
+					float l = 1.0f;
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(0.0f, -1.0f, 0.0f); // Нормаль нижней грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Правая грань (+X)
 				if (!isBlocked(chunk, nearbyChunks, x+1, y, z)){
-					float l = 0.95f;
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l);
+					float l = 1.0f;
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(1.0f, 0.0f, 0.0f); // Нормаль правой грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u, v, l);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
 				}
 				
 				// Левая грань (-X)
 				if (!isBlocked(chunk, nearbyChunks, x-1, y, z)){
-					float l = 0.85f;
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l);
+					float l = 1.0f;
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(-1.0f, 0.0f, 0.0f); // Нормаль левой грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l);
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Передняя грань (+Z)
 				if (!isBlocked(chunk, nearbyChunks, x, y, z+1)){
-					float l = 0.9f;
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l);
+					float l = 1.0f;
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(0.0f, 0.0f, 1.0f); // Нормаль передней грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Задняя грань (-Z)
 				if (!isBlocked(chunk, nearbyChunks, x, y, z-1)){
-					float l = 0.8f;
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l);
+					float l = 1.0f;
+					if (lightingSystem != nullptr) {
+						int bx = (int)std::round(wx);
+						int by = (int)std::round(wy);
+						int bz = (int)std::round(wz);
+						glm::vec3 faceNormal(0.0f, 0.0f, -1.0f); // Нормаль задней грани
+						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
+					}
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u, v, l);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
 				}
 			}
 		}

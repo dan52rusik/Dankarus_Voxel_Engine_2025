@@ -1,14 +1,4 @@
 #include "engine/Game.h"
-
-#include <iostream>
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <cmath>
-#include <vector>
-
-#include "engine/Game.h"
 #include "engine/Engine.h"
 #include "engine/Renderer.h"
 #include "engine/WorldManager.h"
@@ -35,6 +25,7 @@
 #include "graphics/Font.h"
 #include "maths/FrustumCulling.h"
 #include "graphics/VoxelRenderer.h"
+#include "lighting/LightingSystem.h"
 
 using namespace glm;
 
@@ -224,6 +215,24 @@ void Game::handleInput(float delta) {
         camera->rotate(camY, camX, 0);
     }
     
+    // Переключение блоков на цифрах 1-4
+    if (Events::jpressed(GLFW_KEY_1)) {
+        engine->selectedBlockId = 1;
+        std::cout << "[BLOCK] Selected block: 1" << std::endl;
+    }
+    if (Events::jpressed(GLFW_KEY_2)) {
+        engine->selectedBlockId = 2;
+        std::cout << "[BLOCK] Selected block: 2 (Lamp)" << std::endl;
+    }
+    if (Events::jpressed(GLFW_KEY_3)) {
+        engine->selectedBlockId = 3;
+        std::cout << "[BLOCK] Selected block: 3" << std::endl;
+    }
+    if (Events::jpressed(GLFW_KEY_4)) {
+        engine->selectedBlockId = 4;
+        std::cout << "[BLOCK] Selected block: 4" << std::endl;
+    }
+    
     // Обработка кликов мыши для установки/удаления блоков
     vec3 end;
     vec3 norm;
@@ -258,14 +267,15 @@ void Game::handleInput(float delta) {
             int bx = (int)(iend.x) + (int)(norm.x);
             int by = (int)(iend.y) + (int)(norm.y);
             int bz = (int)(iend.z) + (int)(norm.z);
-            std::cout << "[PLACE] Attempting to place block next to voxel at (" 
-                      << bx << ", " << by << ", " << bz << ")" << std::endl;
-            chunkManager->setVoxel(bx, by, bz, 2);
+            std::cout << "[PLACE] Attempting to place block " << engine->selectedBlockId 
+                      << " next to voxel at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+            chunkManager->setVoxel(bx, by, bz, engine->selectedBlockId);
             
             // Проверяем, установился ли блок
             voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
-            if (checkVox != nullptr && checkVox->id == 2) {
-                std::cout << "[SUCCESS] Block placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+            if (checkVox != nullptr && checkVox->id == engine->selectedBlockId) {
+                std::cout << "[SUCCESS] Block " << engine->selectedBlockId 
+                          << " placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
             } else {
                 std::cout << "[ERROR] Block NOT placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
             }
@@ -297,16 +307,16 @@ void Game::handleInput(float delta) {
                     std::cout << "[PLACE] Surface on side, placing block nearby" << std::endl;
                 }
                 
-                std::cout << "[PLACE] Attempting to place block on ground surface at (" 
-                          << bx << ", " << by << ", " << bz << ")" << std::endl;
+                std::cout << "[PLACE] Attempting to place block " << engine->selectedBlockId 
+                          << " on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
                 
-                chunkManager->setVoxel(bx, by, bz, 2);
+                chunkManager->setVoxel(bx, by, bz, engine->selectedBlockId);
                 
                 // Проверяем, установился ли блок
                 voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
-                if (checkVox != nullptr && checkVox->id == 2) {
-                    std::cout << "[SUCCESS] Block placed on ground surface at (" 
-                              << bx << ", " << by << ", " << bz << ")" << std::endl;
+                if (checkVox != nullptr && checkVox->id == engine->selectedBlockId) {
+                    std::cout << "[SUCCESS] Block " << engine->selectedBlockId 
+                              << " placed on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
                 } else {
                     std::cout << "[ERROR] Block NOT placed on ground surface at (" 
                               << bx << ", " << by << ", " << bz << ")" << std::endl;
@@ -327,9 +337,15 @@ void Game::updateWorld() {
     ChunkManager* chunkManager = engine->getChunkManager();
     Camera* camera = engine->getCamera();
     VoxelRenderer* voxelRenderer = engine->getVoxelRenderer();
+    lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
     
     // Обновляем чанки вокруг камеры
     chunkManager->update(camera->position, engine->renderDistance);
+    
+    // Обновляем освещение вокруг камеры
+    if (lightingSystem != nullptr) {
+        lightingSystem->updateLighting(camera->position, engine->renderDistance);
+    }
     
     // Пересобираем меши вокселей для измененных чанков
     std::vector<MCChunk*> visibleChunks = chunkManager->getVisibleChunks();
@@ -351,8 +367,9 @@ void Game::updateWorld() {
                 }
             }
             
-            // Генерируем новый меш
-            chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks);
+            // Генерируем новый меш с системой освещения
+            lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
+            chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
             chunk->voxelMeshModified = false;
         }
     }
@@ -499,9 +516,29 @@ void Game::renderWorld() {
     }
     
     // Отрисовываем воксельные блоки
+    // Используем polygon offset для избежания z-fighting с поверхностью земли
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f); // Тянем блоки чуть к камере (отрицательный offset)
+    
     voxelShader->use();
     voxelShader->uniformMatrix("projview", projview);
+    
+    // Передаем параметры освещения
+    lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
+    if (lightingSystem != nullptr) {
+        mat4 view = camera->getView();
+        voxelShader->uniformMatrix("u_view", view);
+        voxelShader->uniform3f("u_skyLightColor",
+                               lightingSystem->getSkyLightColor().x,
+                               lightingSystem->getSkyLightColor().y,
+                               lightingSystem->getSkyLightColor().z);
+        voxelShader->uniform1f("u_gamma", lightingSystem->getGamma());
+    }
+    
+    // Убеждаемся, что текстура правильно привязана
+    glActiveTexture(GL_TEXTURE0);
     texture->bind();
+    voxelShader->uniform1i("u_texture0", 0);
     
     for (MCChunk* chunk : visibleChunks) {
         if (chunk->voxelMesh != nullptr) {
@@ -526,5 +563,8 @@ void Game::renderWorld() {
             chunk->voxelMesh->draw(GL_TRIANGLES);
         }
     }
+    
+    // Отключаем polygon offset после отрисовки блоков
+    glDisable(GL_POLYGON_OFFSET_FILL);
 }
 

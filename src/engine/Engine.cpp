@@ -22,6 +22,7 @@
 #include "engine/Game.h"
 #include "engine/Renderer.h"
 #include "engine/WorldManager.h"
+#include "lighting/LightingSystem.h"
 
 using namespace glm;
 
@@ -48,6 +49,8 @@ bool Engine::initialize() {
     frustum = new Frustum();
     voxelRenderer = new VoxelRenderer(1024 * 1024 * 8);
     worldManager = new WorldManager(chunkManager, worldSave, menu);
+    lightingSystem = new lighting::LightingSystem();
+    lightingSystem->initialize(chunkManager);
     
     // Настройка OpenGL
     glClearColor(0.6f, 0.8f, 1.0f, 1.0f);
@@ -147,6 +150,7 @@ void Engine::shutdown() {
     
     cleanupResources();
     
+    if (lightingSystem) delete lightingSystem;
     if (worldManager) delete worldManager;
     if (menu) delete menu;
     if (chunkManager) delete chunkManager;
