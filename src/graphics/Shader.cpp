@@ -33,6 +33,20 @@ void Shader::uniform1i(std::string name, int value){
 	}
 }
 
+void Shader::uniform1f(std::string name, float value){
+	GLint location = glGetUniformLocation(id, name.c_str());
+	if (location != -1) {
+		glUniform1f(location, value);
+	}
+}
+
+void Shader::uniform3f(std::string name, float x, float y, float z){
+	GLint location = glGetUniformLocation(id, name.c_str());
+	if (location != -1) {
+		glUniform3f(location, x, y, z);
+	}
+}
+
 
 Shader* load_shader(std::string vertexFile, std::string fragmentFile) {
 	// Reading Files

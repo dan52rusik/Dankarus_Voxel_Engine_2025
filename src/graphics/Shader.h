@@ -14,6 +14,8 @@ public:
 	void use();
 	void uniformMatrix(std::string name, glm::mat4 matrix);
 	void uniform1i(std::string name, int value);
+	void uniform1f(std::string name, float value);
+	void uniform3f(std::string name, float x, float y, float z);
 };
 
 extern Shader* load_shader(std::string vertexFile, std::string fragmentFile);

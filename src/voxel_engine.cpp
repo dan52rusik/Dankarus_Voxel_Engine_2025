@@ -131,6 +131,24 @@ void drawBlockOutline(Shader* linesShader, const mat4& projview, int blockX, int
 	const int lineAttrs[] = {3, 4, 0}; // позиция (3), цвет (4)
 	Mesh lineMesh(vertices.data(), vertices.size() / 7, lineAttrs);
 	
+	// Сохраняем текущее состояние OpenGL
+	GLboolean oldCullFace;
+	GLboolean oldDepthTest;
+	GLboolean oldDepthMask;
+	GLboolean oldBlend;
+	GLint oldDepthFunc;
+	GLfloat oldLineWidth;
+	
+	glGetBooleanv(GL_CULL_FACE, &oldCullFace);
+	glGetBooleanv(GL_DEPTH_TEST, &oldDepthTest);
+	// GL_DEPTH_WRITEMASK возвращает GLboolean через glGetBooleanv
+	GLboolean depthWriteMask;
+	glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWriteMask);
+	oldDepthMask = depthWriteMask;
+	glGetBooleanv(GL_BLEND, &oldBlend);
+	glGetIntegerv(GL_DEPTH_FUNC, &oldDepthFunc);
+	glGetFloatv(GL_LINE_WIDTH, &oldLineWidth);
+	
 	// Настраиваем состояние для отрисовки линий
 	glDisable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);
@@ -147,11 +165,15 @@ void drawBlockOutline(Shader* linesShader, const mat4& projview, int blockX, int
 	// Рисуем линии
 	lineMesh.draw(GL_LINES);
 	
-	// Восстанавливаем состояние
-	glLineWidth(1.0f);
-	glDepthMask(GL_TRUE); // Восстанавливаем запись в буфер глубины
-	glDisable(GL_BLEND);
-	glEnable(GL_CULL_FACE);
+	// Восстанавливаем предыдущее состояние OpenGL
+	glLineWidth(oldLineWidth);
+	glDepthMask(oldDepthMask ? GL_TRUE : GL_FALSE);
+	glDepthFunc(oldDepthFunc);
+	if (oldBlend) glEnable(GL_BLEND);
+	else glDisable(GL_BLEND);
+	if (oldCullFace) glEnable(GL_CULL_FACE);
+	else glDisable(GL_CULL_FACE);
+	if (!oldDepthTest) glDisable(GL_DEPTH_TEST);
 }
 
 // Функция для отрисовки прицела в центре экрана
@@ -343,6 +365,10 @@ int main() {
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
+	
+	// Включаем sRGB-коррекцию для правильного отображения цветов
+	// Если используешь sRGB, раскомментируй следующую строку и закомментируй pow() в шейдере
+	// glEnable(GL_FRAMEBUFFER_SRGB);
 
 	// Камера выше для обзора ландшафта
 	Camera* camera = new Camera(vec3(0.0f, baseHeight + 8.0f, 20.0f), radians(90.0f));
@@ -660,6 +686,12 @@ int main() {
 		// Отрисовываем Marching Cubes (поверхность земли)
 		shader->use();
 		shader->uniformMatrix("projview", projview);
+		// Передаем параметры для процедурного текстурирования
+		shader->uniform1f("u_baseHeight", baseHeight);
+		shader->uniform1f("u_heightVariation", heightVariation);
+		// Нормализуем направление света на CPU перед передачей
+		vec3 lightDir = normalize(vec3(0.4f, 0.8f, 0.4f));
+		shader->uniform3f("u_lightDir", lightDir.x, lightDir.y, lightDir.z);
 		
 		for (MCChunk* chunk : visibleChunks) {
 			if (chunk->mesh != nullptr) {
