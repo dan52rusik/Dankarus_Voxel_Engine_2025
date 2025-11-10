@@ -58,6 +58,10 @@ bool Engine::initialize() {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     
+    // Убеждаемся, что курсор виден при запуске (в меню)
+    Window::setCursorMode(GLFW_CURSOR_NORMAL);
+    Events::_cursor_locked = false;
+    
     return true;
 }
 

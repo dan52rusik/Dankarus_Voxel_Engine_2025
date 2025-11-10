@@ -77,6 +77,13 @@ Menu::~Menu() {
 }
 
 GameState Menu::update() {
+	// Получаем размеры окна для обработки мыши
+	int windowWidth = Window::width;
+	int windowHeight = Window::height;
+	
+	// Обрабатываем взаимодействие с мышью (наведение и клики)
+	handleMouseInteraction(windowWidth, windowHeight);
+	
 	if (currentState == GameState::MENU) {
 		// Главное меню - количество пунктов зависит от наличия сохранения
 		int menuItemCount = saveFileExists ? 4 : 3; // "Новая игра", "Продолжить" (если есть), "Настройки", "Выход"
@@ -87,12 +94,12 @@ GameState Menu::update() {
 		if (Events::jpressed(GLFW_KEY_DOWN)) {
 			selectedItem = (selectedItem + 1) % menuItemCount;
 		}
+		// Обработка клавиатуры (Enter/Space для выбора пункта)
 		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
+			// Выполняем действие для выбранного пункта (аналогично клику мыши)
 			if (saveFileExists) {
-				// Меню с сохранением: "Одиночная игра", "Продолжить", "Настройки", "Выход"
 				switch (selectedItem) {
 					case 0: { // Одиночная игра
-						// Открываем окно выбора мира
 						refreshWorldList();
 						currentState = GameState::WORLD_SELECT;
 						worldSelectSelectedItem = 0;
@@ -110,10 +117,8 @@ GameState Menu::update() {
 						break;
 				}
 			} else {
-				// Меню без сохранения: "Одиночная игра", "Настройки", "Выход"
 				switch (selectedItem) {
 					case 0: { // Одиночная игра
-						// Открываем окно выбора мира
 						refreshWorldList();
 						currentState = GameState::WORLD_SELECT;
 						worldSelectSelectedItem = 0;
@@ -828,4 +833,260 @@ void Menu::setSaveFileExists(bool exists) {
 
 bool Menu::hasSaveFile() const {
 	return saveFileExists;
+}
+
+// Вспомогательная функция для определения, над каким пунктом меню находится курсор
+int Menu::getMouseHoveredItem(int fbWidth, int fbHeight, int itemCount, int buttonX, int buttonY, int buttonW, int buttonH, int buttonGap, int startY) {
+	// Преобразуем координаты мыши из window coordinates в framebuffer coordinates
+	float mouseX = Events::x;
+	float mouseY = Events::y;
+	
+	// Масштабируем координаты мыши, если размеры окна и framebuffer различаются
+	// Проверяем деление на ноль
+	if (Window::width > 0 && Window::height > 0) {
+		mouseX = mouseX * ((float)fbWidth / (float)Window::width);
+		mouseY = mouseY * ((float)fbHeight / (float)Window::height);
+	}
+	
+	// Проверяем, находится ли курсор над кнопками
+	for (int i = 0; i < itemCount; i++) {
+		int y = startY + i * (buttonH + buttonGap);
+		if (mouseX >= buttonX && mouseX <= buttonX + buttonW &&
+		    mouseY >= y && mouseY <= y + buttonH) {
+			return i;
+		}
+	}
+	
+	return -1; // Курсор не над кнопками
+}
+
+void Menu::handleMouseInteraction(int windowWidth, int windowHeight) {
+	// Получаем размеры framebuffer для правильного преобразования координат
+	int fbWidth = Window::fbWidth > 0 ? Window::fbWidth : windowWidth;
+	int fbHeight = Window::fbHeight > 0 ? Window::fbHeight : windowHeight;
+	
+	if (currentState == GameState::MENU) {
+		// Главное меню
+		int menuItemCount = saveFileExists ? 4 : 3;
+		int w = style.buttonW;
+		int h = style.buttonH;
+		int x = (fbWidth - w) / 2;
+		int tY = (int)(fbHeight / 5);
+		int y0 = tY + 80;
+		
+		// Определяем, над какой кнопкой находится курсор
+		int hoveredItem = getMouseHoveredItem(fbWidth, fbHeight, menuItemCount, x, y0, w, h, style.buttonGap, y0);
+		
+		// Обновляем selectedItem при наведении мыши
+		if (hoveredItem >= 0) {
+			selectedItem = hoveredItem;
+		}
+		
+		// Обрабатываем клик мыши
+		if (Events::jclicked(GLFW_MOUSE_BUTTON_LEFT) && hoveredItem >= 0) {
+			// Кликнули на кнопку - выполняем действие
+			if (saveFileExists) {
+				switch (hoveredItem) {
+					case 0: { // Одиночная игра
+						refreshWorldList();
+						currentState = GameState::WORLD_SELECT;
+						worldSelectSelectedItem = 0;
+						break;
+					}
+					case 1: // Продолжить
+						menuAction = MenuAction::LOAD_WORLD;
+						currentState = GameState::PLAYING;
+						break;
+					case 2: // Настройки
+						// TODO: открыть настройки
+						break;
+					case 3: // Выход
+						menuAction = MenuAction::QUIT;
+						break;
+				}
+			} else {
+				switch (hoveredItem) {
+					case 0: { // Одиночная игра
+						refreshWorldList();
+						currentState = GameState::WORLD_SELECT;
+						worldSelectSelectedItem = 0;
+						break;
+					}
+					case 1: // Настройки
+						// TODO: открыть настройки
+						break;
+					case 2: // Выход
+						menuAction = MenuAction::QUIT;
+						break;
+				}
+			}
+		}
+	} else if (currentState == GameState::WORLD_SELECT) {
+		// Окно выбора мира
+		int panelW = 500;
+		int panelH = std::min(500, 100 + (int)worldList.size() * (style.buttonH + style.buttonGap) + style.buttonH + 40);
+		int panelX = (fbWidth - panelW) / 2;
+		int panelY = (fbHeight - panelH) / 2;
+		int w = 460;
+		int h = style.buttonH;
+		int x = panelX + (panelW - w) / 2;
+		int y0 = panelY + 60;
+		int gap = style.buttonGap;
+		
+		// Количество пунктов: список миров + кнопка "Создать новый мир"
+		int itemCount = std::max(1, (int)worldList.size() + 1);
+		
+		// Преобразуем координаты мыши из window coordinates в framebuffer coordinates
+		float mouseX = Events::x;
+		float mouseY = Events::y;
+		if (Window::width > 0 && Window::height > 0) {
+			mouseX = mouseX * ((float)fbWidth / (float)Window::width);
+			mouseY = mouseY * ((float)fbHeight / (float)Window::height);
+		}
+		
+		// Проверяем список миров
+		int hoveredWorld = -1;
+		for (size_t i = 0; i < worldList.size(); i++) {
+			int y = y0 + (int)i * (h + gap);
+			if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) {
+				hoveredWorld = (int)i;
+				break;
+			}
+		}
+		
+		// Проверяем кнопку "Создать новый мир"
+		int createY = worldList.empty() ? y0 : (y0 + (int)worldList.size() * (h + gap) + 20);
+		bool hoveredCreate = (mouseX >= x && mouseX <= x + w && mouseY >= createY && mouseY <= createY + h);
+		
+		// Обновляем selectedItem при наведении мыши
+		if (hoveredWorld >= 0) {
+			worldSelectSelectedItem = hoveredWorld;
+		} else if (hoveredCreate) {
+			worldSelectSelectedItem = (int)worldList.size();
+		}
+		
+		// Обрабатываем клик мыши
+		if (Events::jclicked(GLFW_MOUSE_BUTTON_LEFT)) {
+			if (hoveredWorld >= 0) {
+				// Кликнули на мир из списка
+				std::string selectedPath = getSelectedWorldPath();
+				std::cout << "[MENU] Selected world: " << selectedPath << " (index: " << hoveredWorld << ")" << std::endl;
+				menuAction = MenuAction::LOAD_WORLD;
+				currentState = GameState::PLAYING;
+			} else if (hoveredCreate) {
+				// Кликнули на "Создать новый мир"
+				currentState = GameState::CREATE_WORLD;
+				createWorldSelectedItem = 2; // Выбираем кнопку "Создать мир"
+				// Генерируем новый случайный seed
+				{
+					std::random_device rd;
+					std::mt19937 gen(rd());
+					std::uniform_int_distribution<int> dis(1, 2147483647);
+					worldSeed = dis(gen);
+					seedInput = std::to_string(worldSeed);
+				}
+			}
+		}
+	} else if (currentState == GameState::CREATE_WORLD) {
+		// Окно создания мира
+		int panelW = 500;
+		int panelH = 300;
+		int panelX = (fbWidth - panelW) / 2;
+		int panelY = (fbHeight - panelH) / 2;
+		int w = 460;
+		int h = style.buttonH;
+		int x = panelX + (panelW - w) / 2;
+		int y0 = panelY + 60;
+		int gap = style.buttonGap;
+		
+		// Преобразуем координаты мыши из window coordinates в framebuffer coordinates
+		float mouseX = Events::x;
+		float mouseY = Events::y;
+		if (Window::width > 0 && Window::height > 0) {
+			mouseX = mouseX * ((float)fbWidth / (float)Window::width);
+			mouseY = mouseY * ((float)fbHeight / (float)Window::height);
+		}
+		
+		// Проверяем каждое поле/кнопку
+		int y1 = y0; // Название мира
+		int y2 = y1 + h + gap; // Seed
+		int y3 = y2 + h + gap + 20; // Создать мир
+		int y4 = y3 + h + gap; // Назад
+		
+		int hoveredItem = -1;
+		if (mouseX >= x && mouseX <= x + w) {
+			if (mouseY >= y1 && mouseY <= y1 + h) {
+				hoveredItem = 0; // Название мира
+			} else if (mouseY >= y2 && mouseY <= y2 + h) {
+				hoveredItem = 1; // Seed
+			} else if (mouseY >= y3 && mouseY <= y3 + h) {
+				hoveredItem = 2; // Создать мир
+			} else if (mouseY >= y4 && mouseY <= y4 + h) {
+				hoveredItem = 3; // Назад
+			}
+		}
+		
+		// Обновляем selectedItem при наведении мыши
+		if (hoveredItem >= 0) {
+			createWorldSelectedItem = hoveredItem;
+		}
+		
+		// Обрабатываем клик мыши
+		if (Events::jclicked(GLFW_MOUSE_BUTTON_LEFT) && hoveredItem >= 0) {
+			if (hoveredItem == 0 || hoveredItem == 1) {
+				// Клик на текстовое поле - просто активируем его (selectedItem уже установлен выше)
+				// Ввод текста обрабатывается в update() на основе createWorldSelectedItem
+			} else if (hoveredItem == 2) {
+				// Создать мир
+				if (worldName.empty() || worldName == "Новый мир") {
+					worldName = seedInput.empty() ? "Новый мир" : seedInput;
+				}
+				try {
+					worldSeed = std::stoi(seedInput);
+				} catch (...) {
+					std::hash<std::string> hasher;
+					worldSeed = (int)(hasher(seedInput) & 0x7FFFFFFF);
+					if (worldSeed == 0) worldSeed = 1337;
+				}
+				std::cout << "[MENU] Creating world with name: '" << worldName << "', seed: " << worldSeed << std::endl;
+				menuAction = MenuAction::CREATE_WORLD;
+				currentState = GameState::PLAYING;
+			} else if (hoveredItem == 3) {
+				// Назад
+				currentState = GameState::WORLD_SELECT;
+				createWorldSelectedItem = 0;
+			}
+		}
+	} else if (currentState == GameState::PAUSED) {
+		// Меню паузы
+		int w = style.buttonW;
+		int h = style.buttonH;
+		int x = (fbWidth - w) / 2;
+		int tY = (int)(fbHeight / 5);
+		int y0 = tY + 80;
+		
+		// Определяем, над какой кнопкой находится курсор
+		int hoveredItem = getMouseHoveredItem(fbWidth, fbHeight, 3, x, y0, w, h, style.buttonGap, y0);
+		
+		// Обновляем selectedItem при наведении мыши
+		if (hoveredItem >= 0) {
+			selectedItem = hoveredItem;
+		}
+		
+		// Обрабатываем клик мыши
+		if (Events::jclicked(GLFW_MOUSE_BUTTON_LEFT) && hoveredItem >= 0) {
+			switch (hoveredItem) {
+				case 0: // Вернуться в игру
+					currentState = GameState::PLAYING;
+					break;
+				case 1: // Настройки
+					// TODO: открыть настройки
+					break;
+				case 2: // Главное меню
+					currentState = GameState::MENU;
+					selectedItem = 0;
+					break;
+			}
+		}
+	}
 }

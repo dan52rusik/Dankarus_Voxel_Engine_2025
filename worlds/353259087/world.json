@@ -1,12 +1,12 @@
 {
   "generator": "voxelnoxel:terrain",
   "generator-params": {
-    "baseFreq": 0.03,
+    "baseFreq": 0.10,
     "baseHeight": 12,
-    "gain": 0.5,
-    "heightVariation": 4,
-    "lacunarity": 2,
-    "octaves": 4
+    "gain": 1,
+    "heightVariation": 10,
+    "lacunarity": 5,
+    "octaves": 20
   },
   "name": "353259087",
   "seed": 353259087,

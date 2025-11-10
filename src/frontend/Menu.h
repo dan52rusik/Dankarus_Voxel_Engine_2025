@@ -101,6 +101,10 @@ private:
 	
 	// Вспомогательная функция для отрисовки текстового поля
 	void drawTextField(Batch2D* batch, Font* font, Shader* shader, const std::string& label, const std::string& value, int x, int y, int width, int height, bool selected, bool active);
+	
+	// Вспомогательные функции для обработки мыши
+	int getMouseHoveredItem(int fbWidth, int fbHeight, int itemCount, int buttonX, int buttonY, int buttonW, int buttonH, int buttonGap, int startY);
+	void handleMouseInteraction(int windowWidth, int windowHeight);
 };
 
 #endif /* FRONTEND_MENU_H_ */

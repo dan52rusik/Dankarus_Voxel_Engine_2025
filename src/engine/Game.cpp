@@ -56,6 +56,25 @@ void Game::update(float delta) {
     // Обновляем меню
     GameState currentState = menu->update();
     
+    // Управление видимостью курсора в зависимости от состояния игры
+    // В меню курсор должен быть виден, в игре - заблокирован
+    bool shouldShowCursor = (currentState == GameState::MENU || 
+                             currentState == GameState::WORLD_SELECT || 
+                             currentState == GameState::CREATE_WORLD || 
+                             currentState == GameState::PAUSED);
+    bool shouldLockCursor = (currentState == GameState::PLAYING);
+    
+    // Обновляем состояние курсора, если оно изменилось
+    if (shouldShowCursor && Events::_cursor_locked) {
+        // Нужно показать курсор, но он заблокирован - разблокируем
+        Events::_cursor_locked = false;
+        Window::setCursorMode(GLFW_CURSOR_NORMAL);
+    } else if (shouldLockCursor && !Events::_cursor_locked) {
+        // Нужно заблокировать курсор, но он разблокирован - блокируем
+        Events::_cursor_locked = true;
+        Window::setCursorMode(GLFW_CURSOR_DISABLED);
+    }
+    
     // Обновляем список миров при переходе в окно выбора мира
     if (currentState == GameState::WORLD_SELECT && engine->previousState != GameState::WORLD_SELECT) {
         menu->refreshWorldList();
@@ -208,6 +227,8 @@ void Game::handleInput(float delta) {
     Camera* camera = engine->getCamera();
     WorldManager* worldManager = engine->getWorldManager();
     
+    // TAB переключает курсор только во время игры (не в меню)
+    // В меню курсор всегда виден и управляется автоматически
     if (Events::jpressed(GLFW_KEY_TAB)) {
         Events::toggleCursor();
     }
