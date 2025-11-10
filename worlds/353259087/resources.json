@@ -1,0 +1,10 @@
+{
+  "blocks": [
+    "core:air",
+    "core:stone",
+    "core:lamp",
+    "core:wood",
+    "core:grass"
+  ],
+  "region-version": 1
+}

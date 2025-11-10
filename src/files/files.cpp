@@ -70,15 +70,26 @@ namespace files {
 		std::vector<std::string> files;
 #ifdef _WIN32
 		// Используем правильный паттерн поиска для Windows
-		std::string searchPath = path + "\\*" + extension;
+		std::string searchPath = path + "\\*";
 		WIN32_FIND_DATAA findData;
 		HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
 		if (hFind != INVALID_HANDLE_VALUE) {
 			do {
-				if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-					std::string filename = findData.cFileName;
-					if (extension.empty() || filename.size() >= extension.size()) {
-						if (extension.empty() || filename.substr(filename.size() - extension.size()) == extension) {
+				std::string filename = findData.cFileName;
+				// Пропускаем . и ..
+				if (filename == "." || filename == "..") continue;
+				
+				// Если extension пустой, возвращаем все (папки и файлы)
+				// Если extension указан, возвращаем только файлы с таким расширением
+				bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+				
+				if (extension.empty()) {
+					// Возвращаем все (папки и файлы)
+					files.push_back(filename);
+				} else if (!isDirectory) {
+					// Возвращаем только файлы с указанным расширением
+					if (filename.size() >= extension.size()) {
+						if (filename.substr(filename.size() - extension.size()) == extension) {
 							files.push_back(filename);
 						}
 					}
@@ -99,9 +110,17 @@ namespace files {
 			while ((entry = readdir(dir)) != nullptr) {
 				std::string filename = entry->d_name;
 				if (filename != "." && filename != "..") {
-					if (extension.empty() || filename.size() >= extension.size()) {
-						if (extension.empty() || filename.substr(filename.size() - extension.size()) == extension) {
-							files.push_back(filename);
+					bool isDirectory = (entry->d_type == DT_DIR);
+					
+					if (extension.empty()) {
+						// Возвращаем все (папки и файлы)
+						files.push_back(filename);
+					} else if (!isDirectory) {
+						// Возвращаем только файлы с указанным расширением
+						if (filename.size() >= extension.size()) {
+							if (filename.substr(filename.size() - extension.size()) == extension) {
+								files.push_back(filename);
+							}
 						}
 					}
 				}

@@ -66,10 +66,14 @@ void Game::update(float delta) {
     if ((currentState == GameState::MENU || currentState == GameState::WORLD_SELECT) && 
         (engine->previousState == GameState::PLAYING || engine->previousState == GameState::PAUSED)) {
         // Сохраняем текущий мир перед выходом
+        // Параметры генерации берутся из ChunkManager в WorldManager::saveWorld
         if (engine->worldInitialized && !engine->currentWorldPath.empty()) {
-            worldManager->saveWorld(engine->currentWorldPath, engine->seed, 
-                                    engine->baseFreq, engine->octaves, engine->lacunarity, engine->gain,
-                                    engine->baseHeight, engine->heightVariation);
+            std::string worldName = worldManager->getCurrentWorldName();
+            int64_t seed = worldManager->getCurrentSeed();
+            Camera* camera = engine->getCamera();
+            // Параметры генерации будут взяты из ChunkManager в saveWorld
+            worldManager->saveWorld(engine->currentWorldPath, worldName, seed,
+                                    0.0f, 0, 0.0f, 0.0f, 0.0f, 0.0f, camera);
             std::cout << "[GAME] World saved before exit to menu: " << engine->currentWorldPath << std::endl;
         }
         // Сбрасываем инициализацию мира
@@ -118,12 +122,32 @@ void Game::handleMenuActions() {
             // Получаем seed и название мира из меню
             engine->seed = menu->getWorldSeed();
             std::string worldName = menu->getWorldName();
+            int64_t seed = (int64_t)engine->seed; // Преобразуем int в int64_t
             
-            if (worldManager->createWorld(worldName, engine->seed,
-                                          engine->baseFreq, engine->octaves, engine->lacunarity, engine->gain,
-                                          engine->baseHeight, engine->heightVariation)) {
+            // ИСПОЛЬЗУЕМ ДЕФОЛТНЫЕ ПАРАМЕТРЫ ГЕНЕРАЦИИ для нового мира
+            // Это гарантирует, что новый мир будет создан с правильными параметрами,
+            // а не с параметрами из предыдущего загруженного мира
+            float defaultBaseFreq = 0.03f;
+            int defaultOctaves = 4;
+            float defaultLacunarity = 2.0f;
+            float defaultGain = 0.5f;
+            float defaultBaseHeight = 12.0f;
+            float defaultHeightVariation = 4.0f;
+            
+            if (worldManager->createWorld(worldName, seed,
+                                          defaultBaseFreq, defaultOctaves, defaultLacunarity, defaultGain,
+                                          defaultBaseHeight, defaultHeightVariation)) {
                 engine->currentWorldPath = worldManager->getCurrentWorldPath();
                 engine->worldInitialized = true;
+                engine->seed = (int)worldManager->getCurrentSeed(); // Обновляем seed из WorldManager
+                // Обновляем параметры в Engine для согласованности
+                engine->baseFreq = defaultBaseFreq;
+                engine->octaves = defaultOctaves;
+                engine->lacunarity = defaultLacunarity;
+                engine->gain = defaultGain;
+                engine->baseHeight = defaultBaseHeight;
+                engine->heightVariation = defaultHeightVariation;
+                std::cout << "[CREATE] New world created with default generator params" << std::endl;
             }
         }
         menu->clearMenuAction();
@@ -143,11 +167,32 @@ void Game::handleMenuActions() {
                 return;
             }
             
+            std::string worldName;
+            int64_t seed;
+            Camera* camera = engine->getCamera();
+            
+            // Загружаем параметры из файла (они будут обновлены в loadWorld)
+            float loadedBaseFreq = engine->baseFreq;
+            int loadedOctaves = engine->octaves;
+            float loadedLacunarity = engine->lacunarity;
+            float loadedGain = engine->gain;
+            float loadedBaseHeight = engine->baseHeight;
+            float loadedHeightVariation = engine->heightVariation;
+            
             if (worldManager->loadWorld(saveFileName,
-                                        engine->baseFreq, engine->octaves, engine->lacunarity, engine->gain,
-                                        engine->baseHeight, engine->heightVariation, engine->seed)) {
+                                        loadedBaseFreq, loadedOctaves, loadedLacunarity, loadedGain,
+                                        loadedBaseHeight, loadedHeightVariation, seed, worldName, camera)) {
                 engine->currentWorldPath = worldManager->getCurrentWorldPath();
+                engine->seed = (int)seed; // Обновляем seed из WorldManager
+                // ВАЖНО: Обновляем параметры генерации в Engine из загруженного мира
+                engine->baseFreq = loadedBaseFreq;
+                engine->octaves = loadedOctaves;
+                engine->lacunarity = loadedLacunarity;
+                engine->gain = loadedGain;
+                engine->baseHeight = loadedBaseHeight;
+                engine->heightVariation = loadedHeightVariation;
                 engine->worldInitialized = true;
+                std::cout << "[LOAD] Engine params updated from world file" << std::endl;
             }
         }
         menu->clearMenuAction();
@@ -177,11 +222,16 @@ void Game::handleInput(float delta) {
     }
     
     // Сохранение мира по нажатию F5
+    // Параметры генерации берутся из ChunkManager в WorldManager::saveWorld,
+    // так что передаваемые параметры не важны (они игнорируются)
     if (Events::jpressed(GLFW_KEY_F5)) {
         if (!engine->currentWorldPath.empty()) {
-            worldManager->saveWorld(engine->currentWorldPath, engine->seed,
-                                    engine->baseFreq, engine->octaves, engine->lacunarity, engine->gain,
-                                    engine->baseHeight, engine->heightVariation);
+            std::string worldName = worldManager->getCurrentWorldName();
+            int64_t seed = worldManager->getCurrentSeed();
+            Camera* camera = engine->getCamera();
+            // Параметры генерации будут взяты из ChunkManager в saveWorld
+            worldManager->saveWorld(engine->currentWorldPath, worldName, seed,
+                                    0.0f, 0, 0.0f, 0.0f, 0.0f, 0.0f, camera);
         }
     }
     

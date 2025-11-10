@@ -141,7 +141,9 @@ void Engine::run() {
 void Engine::shutdown() {
     // Автосохранение при выходе
     if (worldInitialized && !currentWorldPath.empty() && worldManager) {
-        if (worldManager->saveWorld(currentWorldPath, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation)) {
+        std::string worldName = worldManager->getCurrentWorldName();
+        int64_t seed = worldManager->getCurrentSeed();
+        if (worldManager->saveWorld(currentWorldPath, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
             std::cout << "[SAVE] Auto-saved world on exit to " << currentWorldPath << std::endl;
         } else {
             std::cout << "[SAVE] Failed to auto-save world on exit" << std::endl;

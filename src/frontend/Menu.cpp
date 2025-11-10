@@ -16,6 +16,7 @@
 #include <vector>
 #include <random>
 #include <sstream>
+#include <fstream>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -649,12 +650,16 @@ int Menu::getWorldSeed() const {
 
 std::string Menu::getSelectedWorldPath() const {
 	if (worldSelectSelectedItem >= 0 && worldSelectSelectedItem < (int)worldList.size()) {
+		std::string worldName = worldList[worldSelectSelectedItem];
 #ifdef _WIN32
-		std::string path = worldsPath + "\\" + worldList[worldSelectSelectedItem];
+		std::string path = worldsPath + "\\" + worldName;
 #else
-		std::string path = worldsPath + "/" + worldList[worldSelectSelectedItem];
+		std::string path = worldsPath + "/" + worldName;
 #endif
-		std::cout << "[MENU] getSelectedWorldPath: index=" << worldSelectSelectedItem << ", world=" << worldList[worldSelectSelectedItem] << ", path=" << path << std::endl;
+		
+		// Если это старый формат (.vxl), возвращаем путь к файлу
+		// Если это новый формат (папка), возвращаем путь к папке
+		std::cout << "[MENU] getSelectedWorldPath: index=" << worldSelectSelectedItem << ", world=" << worldName << ", path=" << path << std::endl;
 		return path;
 	}
 	std::cout << "[MENU] getSelectedWorldPath: invalid index " << worldSelectSelectedItem << " (list size: " << worldList.size() << ")" << std::endl;
@@ -668,7 +673,38 @@ void Menu::refreshWorldList() {
 		std::cout << "[MENU] Created worlds directory: " << worldsPath << std::endl;
 	}
 	
-	worldList = files::list_files(worldsPath, ".vxl");
+	worldList.clear();
+	
+	// Получаем список всех папок в worlds/
+	std::vector<std::string> allItems = files::list_files(worldsPath, "");
+	
+	// Фильтруем только папки, которые содержат world.json (это миры)
+	for (const auto& item : allItems) {
+#ifdef _WIN32
+		std::string worldDirPath = worldsPath + "\\" + item;
+		std::string worldJsonPath = worldDirPath + "\\world.json";
+#else
+		std::string worldDirPath = worldsPath + "/" + item;
+		std::string worldJsonPath = worldDirPath + "/world.json";
+#endif
+		
+		// Проверяем, является ли это папкой и содержит ли world.json
+		if (files::directory_exists(worldDirPath)) {
+			// Проверяем наличие world.json (простая проверка через файловую систему)
+			std::ifstream testFile(worldJsonPath);
+			if (testFile.good()) {
+				worldList.push_back(item);
+				testFile.close();
+			}
+		}
+	}
+	
+	// Также добавляем старые .vxl файлы для обратной совместимости
+	std::vector<std::string> vxlFiles = files::list_files(worldsPath, ".vxl");
+	for (const auto& vxlFile : vxlFiles) {
+		worldList.push_back(vxlFile);
+	}
+	
 	std::cout << "[MENU] Found " << worldList.size() << " world(s) in " << worldsPath << std::endl;
 	for (const auto& world : worldList) {
 		std::cout << "[MENU]   - " << world << std::endl;
@@ -750,7 +786,7 @@ void Menu::drawWorldSelectMenu(Batch2D* batch, Font* font, Shader* shader, int w
 	for (size_t i = 0; i < worldList.size(); ++i) {
 		int y = y0 + (int)i * (h + gap);
 		std::wstring worldName = stringToWstring(worldList[i]);
-		// Убираем расширение .vxl
+		// Убираем расширение .vxl (для старых миров)
 		if (worldName.size() >= 4 && worldName.substr(worldName.size() - 4) == L".vxl") {
 			worldName = worldName.substr(0, worldName.size() - 4);
 		}
