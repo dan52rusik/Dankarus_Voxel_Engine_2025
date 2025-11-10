@@ -286,22 +286,25 @@ void Game::handleInput(float delta) {
         camera->rotate(camY, camX, 0);
     }
     
-    // Переключение блоков на цифрах 1-4
-    if (Events::jpressed(GLFW_KEY_1)) {
-        engine->selectedBlockId = 1;
-        std::cout << "[BLOCK] Selected block: 1" << std::endl;
+    // Переключение слотов hotbar на цифрах 1-9
+    for (int i = 0; i < 9; i++) {
+        if (Events::jpressed(GLFW_KEY_1 + i)) {
+            engine->selectedHotbarSlot = i;
+            std::cout << "[HOTBAR] Selected slot: " << i << " (block: " << engine->getSelectedBlockId() << ")" << std::endl;
+        }
     }
-    if (Events::jpressed(GLFW_KEY_2)) {
-        engine->selectedBlockId = 2;
-        std::cout << "[BLOCK] Selected block: 2 (Lamp)" << std::endl;
-    }
-    if (Events::jpressed(GLFW_KEY_3)) {
-        engine->selectedBlockId = 3;
-        std::cout << "[BLOCK] Selected block: 3" << std::endl;
-    }
-    if (Events::jpressed(GLFW_KEY_4)) {
-        engine->selectedBlockId = 4;
-        std::cout << "[BLOCK] Selected block: 4" << std::endl;
+    
+    // Переключение слотов hotbar колесиком мыши
+    // Обрабатываем только если есть прокрутка (не нулевая)
+    if (Events::scrollY != 0.0f) {
+        if (Events::scrollY > 0.0f) {
+            // Прокрутка вверх - предыдущий слот
+            engine->selectedHotbarSlot = (engine->selectedHotbarSlot - 1 + Engine::HOTBAR_SIZE) % Engine::HOTBAR_SIZE;
+        } else {
+            // Прокрутка вниз - следующий слот
+            engine->selectedHotbarSlot = (engine->selectedHotbarSlot + 1) % Engine::HOTBAR_SIZE;
+        }
+        std::cout << "[HOTBAR] Selected slot: " << engine->selectedHotbarSlot << " (block: " << engine->getSelectedBlockId() << ")" << std::endl;
     }
     
     // Обработка кликов мыши для установки/удаления блоков
@@ -335,20 +338,23 @@ void Game::handleInput(float delta) {
         }
         if (Events::jclicked(GLFW_MOUSE_BUTTON_2)) {
             // Установка блока рядом с найденным (правая кнопка мыши)
-            int bx = (int)(iend.x) + (int)(norm.x);
-            int by = (int)(iend.y) + (int)(norm.y);
-            int bz = (int)(iend.z) + (int)(norm.z);
-            std::cout << "[PLACE] Attempting to place block " << engine->selectedBlockId 
-                      << " next to voxel at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
-            chunkManager->setVoxel(bx, by, bz, engine->selectedBlockId);
-            
-            // Проверяем, установился ли блок
-            voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
-            if (checkVox != nullptr && checkVox->id == engine->selectedBlockId) {
-                std::cout << "[SUCCESS] Block " << engine->selectedBlockId 
-                          << " placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
-            } else {
-                std::cout << "[ERROR] Block NOT placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+            int selectedBlockId = engine->getSelectedBlockId();
+            if (selectedBlockId != 0) { // Проверяем, что выбран не пустой слот
+                int bx = (int)(iend.x) + (int)(norm.x);
+                int by = (int)(iend.y) + (int)(norm.y);
+                int bz = (int)(iend.z) + (int)(norm.z);
+                std::cout << "[PLACE] Attempting to place block " << selectedBlockId 
+                          << " next to voxel at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+                chunkManager->setVoxel(bx, by, bz, selectedBlockId);
+                
+                // Проверяем, установился ли блок
+                voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
+                if (checkVox != nullptr && checkVox->id == selectedBlockId) {
+                    std::cout << "[SUCCESS] Block " << selectedBlockId 
+                              << " placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+                } else {
+                    std::cout << "[ERROR] Block NOT placed at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+                }
             }
         }
     } else {
@@ -358,39 +364,42 @@ void Game::handleInput(float delta) {
         if (chunkManager->rayCastSurface(camera->position, camera->front, 10.0f, surfacePos, surfaceNorm)) {
             if (Events::jclicked(GLFW_MOUSE_BUTTON_2)) {
                 // Установка блока на поверхность земли
-                std::cout << "[SURFACE] Found ground surface at (" 
-                          << surfacePos.x << ", " << surfacePos.y << ", " << surfacePos.z 
-                          << ") normal: (" << surfaceNorm.x << ", " << surfaceNorm.y << ", " << surfaceNorm.z << ")" << std::endl;
-                
-                // Округляем до целых координат (сетка блоков)
-                int bx = (int)std::round(surfacePos.x);
-                int by = (int)std::round(surfacePos.y);
-                int bz = (int)std::round(surfacePos.z);
-                
-                // Если поверхность выше, ставим блок на поверхность, иначе немного выше
-                if (surfaceNorm.y > 0.5f) {
-                    // Поверхность сверху - ставим на неё
-                    by = (int)std::floor(surfacePos.y) + 1;
-                    std::cout << "[PLACE] Surface on top, placing block on surface" << std::endl;
-                } else {
-                    // Поверхность сбоку - ставим рядом
-                    by = (int)std::round(surfacePos.y);
-                    std::cout << "[PLACE] Surface on side, placing block nearby" << std::endl;
-                }
-                
-                std::cout << "[PLACE] Attempting to place block " << engine->selectedBlockId 
-                          << " on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
-                
-                chunkManager->setVoxel(bx, by, bz, engine->selectedBlockId);
-                
-                // Проверяем, установился ли блок
-                voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
-                if (checkVox != nullptr && checkVox->id == engine->selectedBlockId) {
-                    std::cout << "[SUCCESS] Block " << engine->selectedBlockId 
-                              << " placed on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
-                } else {
-                    std::cout << "[ERROR] Block NOT placed on ground surface at (" 
-                              << bx << ", " << by << ", " << bz << ")" << std::endl;
+                int selectedBlockId = engine->getSelectedBlockId();
+                if (selectedBlockId != 0) { // Проверяем, что выбран не пустой слот
+                    std::cout << "[SURFACE] Found ground surface at (" 
+                              << surfacePos.x << ", " << surfacePos.y << ", " << surfacePos.z 
+                              << ") normal: (" << surfaceNorm.x << ", " << surfaceNorm.y << ", " << surfaceNorm.z << ")" << std::endl;
+                    
+                    // Округляем до целых координат (сетка блоков)
+                    int bx = (int)std::round(surfacePos.x);
+                    int by = (int)std::round(surfacePos.y);
+                    int bz = (int)std::round(surfacePos.z);
+                    
+                    // Если поверхность выше, ставим блок на поверхность, иначе немного выше
+                    if (surfaceNorm.y > 0.5f) {
+                        // Поверхность сверху - ставим на неё
+                        by = (int)std::floor(surfacePos.y) + 1;
+                        std::cout << "[PLACE] Surface on top, placing block on surface" << std::endl;
+                    } else {
+                        // Поверхность сбоку - ставим рядом
+                        by = (int)std::round(surfacePos.y);
+                        std::cout << "[PLACE] Surface on side, placing block nearby" << std::endl;
+                    }
+                    
+                    std::cout << "[PLACE] Attempting to place block " << selectedBlockId 
+                              << " on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+                    
+                    chunkManager->setVoxel(bx, by, bz, selectedBlockId);
+                    
+                    // Проверяем, установился ли блок
+                    voxel* checkVox = chunkManager->getVoxel(bx, by, bz);
+                    if (checkVox != nullptr && checkVox->id == selectedBlockId) {
+                        std::cout << "[SUCCESS] Block " << selectedBlockId 
+                                  << " placed on ground surface at (" << bx << ", " << by << ", " << bz << ")" << std::endl;
+                    } else {
+                        std::cout << "[ERROR] Block NOT placed on ground surface at (" 
+                                  << bx << ", " << by << ", " << bz << ")" << std::endl;
+                    }
                 }
             }
         } else {
@@ -529,9 +538,11 @@ void Game::render() {
         glEnable(GL_CULL_FACE);
     }
     
-    // Отрисовываем прицел во время игры (не в меню и не на паузе)
+    // Отрисовываем UI во время игры (не в меню и не на паузе)
     if (currentState == GameState::PLAYING) {
         Renderer::drawCrosshair(batch, uiShader, Window::width, Window::height);
+        Renderer::drawHotbar(batch, uiShader, Window::width, Window::height,
+                             engine->hotbarSlots, engine->selectedHotbarSlot);
     }
 }
 

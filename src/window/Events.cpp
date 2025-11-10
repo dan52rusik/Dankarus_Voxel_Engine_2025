@@ -10,6 +10,8 @@ float Events::deltaX = 0.0f;
 float Events::deltaY = 0.0f;
 float Events::x = 0.0f;
 float Events::y = 0.0f;
+float Events::scrollX = 0.0f;
+float Events::scrollY = 0.0f;
 bool Events::_cursor_locked = false;
 bool Events::_cursor_started = false;
 std::vector<uint> Events::codepoints;
@@ -59,6 +61,11 @@ void character_callback(GLFWwindow* window, unsigned int codepoint){
 	Events::codepoints.push_back(codepoint);
 }
 
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset){
+	Events::scrollX += (float)xoffset;
+	Events::scrollY += (float)yoffset;
+}
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height){
 	glViewport(0, 0, width, height);
 	Window::fbWidth = width;
@@ -84,6 +91,7 @@ int Events::initialize(){
 	glfwSetKeyCallback(window, key_callback);
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 	glfwSetCursorPosCallback(window, cursor_position_callback);
+	glfwSetScrollCallback(window, scroll_callback);
 	glfwSetWindowSizeCallback(window, window_size_callback);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 	glfwSetCharCallback(window, character_callback);
@@ -126,6 +134,8 @@ void Events::pullEvents(){
 	_current++;
 	deltaX = 0.0f;
 	deltaY = 0.0f;
+	scrollX = 0.0f;
+	scrollY = 0.0f;
 	codepoints.clear();
 	pressedKeys.clear();
 	glfwPollEvents();

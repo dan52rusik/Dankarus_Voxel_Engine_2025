@@ -13,5 +13,9 @@ public:
     
     static void drawCrosshair(Batch2D* batch, Shader* uiShader, 
                               int windowWidth, int windowHeight);
+    
+    static void drawHotbar(Batch2D* batch, Shader* uiShader, 
+                           int windowWidth, int windowHeight,
+                           const int* hotbarSlots, int selectedSlot);
 };
 

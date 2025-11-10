@@ -73,8 +73,13 @@ public:
     int targetBlockZ = 0;
     glm::vec3 targetBlockNormal;
     
-    // Выбранный блок (1-4)
-    int selectedBlockId = 1;
+    // Hotbar (9 слотов)
+    static const int HOTBAR_SIZE = 9;
+    int hotbarSlots[HOTBAR_SIZE] = {1, 2, 3, 4, 0, 0, 0, 0, 0}; // Инициализируем первые 4 слота
+    int selectedHotbarSlot = 0; // Текущий выбранный слот (0-8)
+    
+    // Выбранный блок (получается из hotbar)
+    int getSelectedBlockId() const { return hotbarSlots[selectedHotbarSlot]; }
     
 private:
     bool loadResources();

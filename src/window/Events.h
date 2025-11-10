@@ -15,6 +15,8 @@ public:
 	static float deltaY;
 	static float x;
 	static float y;
+	static float scrollX;
+	static float scrollY;
 	static bool _cursor_locked;
 	static bool _cursor_started;
 	static std::vector<uint> codepoints;  // Для текстового ввода
