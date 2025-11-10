@@ -7,6 +7,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <cstdint>
 
 namespace json_simple {
     class Value {

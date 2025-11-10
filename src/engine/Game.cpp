@@ -61,7 +61,7 @@ void Game::update(float delta) {
     bool shouldShowCursor = (currentState == GameState::MENU || 
                              currentState == GameState::WORLD_SELECT || 
                              currentState == GameState::CREATE_WORLD || 
-                             currentState == GameState::PAUSED);
+                             currentState == GameState::PAUSED || currentState == GameState::SETTINGS);
     bool shouldLockCursor = (currentState == GameState::PLAYING);
     
     // Обновляем состояние курсора, если оно изменилось
@@ -108,7 +108,7 @@ void Game::update(float delta) {
     
     // Если игра на паузе или в меню, не обрабатываем игровой ввод
     bool inputLocked = (currentState == GameState::MENU || currentState == GameState::WORLD_SELECT || 
-                        currentState == GameState::CREATE_WORLD || currentState == GameState::PAUSED);
+                        currentState == GameState::CREATE_WORLD || currentState == GameState::PAUSED || currentState == GameState::SETTINGS);
     
     // Если игра не инициализирована или в меню/окне выбора мира/окне создания мира, пропускаем игровой цикл
     if (!engine->worldInitialized || currentState == GameState::MENU || 
@@ -472,9 +472,10 @@ void Game::render() {
     
     // Если игра не инициализирована или в меню/окне выбора мира/окне создания мира, отрисовываем только меню
     if (!engine->worldInitialized || currentState == GameState::MENU || 
-        currentState == GameState::WORLD_SELECT || currentState == GameState::CREATE_WORLD) {
+        currentState == GameState::WORLD_SELECT || currentState == GameState::CREATE_WORLD ||
+        currentState == GameState::SETTINGS) {
         if (currentState == GameState::MENU || currentState == GameState::WORLD_SELECT || 
-            currentState == GameState::CREATE_WORLD) {
+            currentState == GameState::CREATE_WORLD || currentState == GameState::SETTINGS) {
             // Убеждаемся, что viewport установлен правильно
             glViewport(0, 0, Window::fbWidth > 0 ? Window::fbWidth : Window::width, 
                       Window::fbHeight > 0 ? Window::fbHeight : Window::height);
@@ -519,6 +520,27 @@ void Game::render() {
     
     // Отрисовываем меню паузы поверх мира
     if (currentState == GameState::PAUSED) {
+        // UI state: отключаем cull и depth, включаем blend
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        
+        // Гарантируем нужный текстурный юнит перед UI-рендером
+        glActiveTexture(GL_TEXTURE0);
+        uiShader->use();
+        uiShader->uniform1i("u_texture", 0);
+        
+        menu->draw(batch, font, uiShader, Window::width, Window::height);
+        
+        // Восстанавливаем состояние
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+    }
+    
+    // Отрисовываем меню настроек поверх мира
+    if (currentState == GameState::SETTINGS) {
         // UI state: отключаем cull и depth, включаем blend
         glDisable(GL_CULL_FACE);
         glDisable(GL_DEPTH_TEST);

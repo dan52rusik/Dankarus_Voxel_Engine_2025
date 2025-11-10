@@ -1,7 +1,7 @@
 {
   "generator": "voxelnoxel:terrain",
   "generator-params": {
-    "baseFreq": 0.25,
+    "baseFreq": 0.03,
     "baseHeight": 12,
     "gain": 0.5,
     "heightVariation": 4,
@@ -9,7 +9,7 @@
     "octaves": 4
   },
   "name": "zalupka",
-  "seed": 1220895079,
+  "seed": 1575825441,
   "time": {
     "day-time": 0.5,
     "day-time-speed": 1,

@@ -1,0 +1,28 @@
+{
+  "controls": {
+    "keyBackward": 83,
+    "keyForward": 87,
+    "keyInventory": 69,
+    "keyJump": 32,
+    "keyLeft": 65,
+    "keyPause": 256,
+    "keyRight": 68,
+    "keySneak": 340,
+    "keySprint": 341,
+    "keyToggleCursor": 258,
+    "mouseButtonBreak": 0,
+    "mouseButtonPlace": 1
+  },
+  "display": {
+    "fullscreen": true,
+    "height": 720,
+    "swapInterval": 1,
+    "width": 1280
+  },
+  "graphics": {
+    "fogDistance": 1,
+    "fogEnabled": true,
+    "fov": 50,
+    "renderDistance": 5
+  }
+}

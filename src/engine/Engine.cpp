@@ -23,6 +23,8 @@
 #include "engine/Renderer.h"
 #include "engine/WorldManager.h"
 #include "lighting/LightingSystem.h"
+#include "settings/Settings.h"
+#include "settings/SettingsIO.h"
 
 using namespace glm;
 
@@ -34,6 +36,15 @@ Engine::~Engine() {
 }
 
 bool Engine::initialize() {
+    // Загружаем настройки
+    settings = new GameSettings();
+    std::string settingsPath = SettingsIO::getSettingsPath();
+    SettingsIO::loadSettings(settingsPath, *settings);
+    
+    // Применяем настройки отображения
+    WIDTH = settings->display.width;
+    HEIGHT = settings->display.height;
+    
     Window::initialize(WIDTH, HEIGHT, "Window 2.0");
     Events::initialize();
     
@@ -43,14 +54,22 @@ bool Engine::initialize() {
     
     // Инициализация систем
     menu = new Menu();
+    menu->setSettings(settings); // Передаем настройки в меню
+    menu->setEngine(this); // Передаем указатель на Engine для применения настроек
     chunkManager = new ChunkManager();
-    camera = new Camera(vec3(0.0f, baseHeight + 8.0f, 20.0f), radians(90.0f));
+    
+    // Применяем FOV из настроек
+    float fovRad = glm::radians(settings->graphics.fov);
+    camera = new Camera(vec3(0.0f, baseHeight + 8.0f, 20.0f), fovRad);
     worldSave = new WorldSave();
     frustum = new Frustum();
     voxelRenderer = new VoxelRenderer(1024 * 1024 * 8);
     worldManager = new WorldManager(chunkManager, worldSave, menu);
     lightingSystem = new lighting::LightingSystem();
     lightingSystem->initialize(chunkManager);
+    
+    // Применяем настройки
+    applySettings();
     
     // Настройка OpenGL
     glClearColor(0.6f, 0.8f, 1.0f, 1.0f);
@@ -154,6 +173,14 @@ void Engine::shutdown() {
         }
     }
     
+    // Сохраняем настройки
+    if (settings) {
+        std::string settingsPath = SettingsIO::getSettingsPath();
+        SettingsIO::saveSettings(settingsPath, *settings);
+        delete settings;
+        settings = nullptr;
+    }
+    
     cleanupResources();
     
     if (lightingSystem) delete lightingSystem;
@@ -167,6 +194,27 @@ void Engine::shutdown() {
     
     Events::finalize();
     Window::terminate();
+}
+
+void Engine::applySettings() {
+    if (!settings || !camera) return;
+    
+    // Применяем FOV к камере
+    camera->fov = glm::radians(settings->graphics.fov);
+    
+    // Применяем renderDistance
+    renderDistance = settings->graphics.renderDistance;
+    
+    // Применяем swap interval (VSync)
+    glfwSwapInterval(settings->display.swapInterval);
+    
+    // Применяем размер окна (если изменился)
+    if (settings->display.width != WIDTH || settings->display.height != HEIGHT) {
+        WIDTH = settings->display.width;
+        HEIGHT = settings->display.height;
+        // Окно уже создано, поэтому не изменяем его размер здесь
+        // Это можно сделать позже через glfwSetWindowSize, но пока оставим так
+    }
 }
 
 void Engine::cleanupResources() {

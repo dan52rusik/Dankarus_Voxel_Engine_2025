@@ -6,6 +6,9 @@
 #include "../graphics/Shader.h"
 #include "../graphics/Texture.h"
 #include "../files/files.h"
+#include "../settings/Settings.h"
+#include "../settings/SettingsIO.h"
+#include "../engine/Engine.h"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -56,7 +59,7 @@ static void drawBevelRect(Batch2D* b, Shader* shader, float x, float y, float w,
 
 Menu::Menu() : currentState(GameState::MENU), menuAction(MenuAction::NONE), selectedItem(0), saveFileExists(false),
                worldName("Новый мир"), seedInput(""), worldSeed(1337), createWorldSelectedItem(0), seedInputActive(false),
-               worldSelectSelectedItem(0), worldsPath("worlds") {
+               worldSelectSelectedItem(0), worldsPath("worlds"), settings(nullptr), settingsSelectedItem(0), previousState(GameState::MENU) {
 	// Генерируем случайный seed при первом открытии
 	std::random_device rd;
 	std::mt19937 gen(rd());
@@ -110,7 +113,10 @@ GameState Menu::update() {
 						currentState = GameState::PLAYING;
 						break;
 					case 2: // Настройки
-						// TODO: открыть настройки
+						previousState = GameState::MENU;
+						currentState = GameState::SETTINGS;
+						settingsSelectedItem = 0;
+						initSettingsEditValues();
 						break;
 					case 3: // Выход
 						menuAction = MenuAction::QUIT;
@@ -125,7 +131,10 @@ GameState Menu::update() {
 						break;
 					}
 					case 1: // Настройки
-						// TODO: открыть настройки
+						previousState = GameState::MENU;
+						currentState = GameState::SETTINGS;
+						settingsSelectedItem = 0;
+						initSettingsEditValues();
 						break;
 					case 2: // Выход
 						menuAction = MenuAction::QUIT;
@@ -276,14 +285,87 @@ GameState Menu::update() {
 			if (selectedItem == 0) {
 				currentState = GameState::PLAYING;
 			}
-			// Настройки (пока ничего не делаем)
+			// Настройки
 			else if (selectedItem == 1) {
-				// TODO: открыть настройки
+				previousState = GameState::PAUSED;
+				currentState = GameState::SETTINGS;
+				settingsSelectedItem = 0;
+				initSettingsEditValues();
 			}
 			// Главное меню
 			else if (selectedItem == 2) {
 				currentState = GameState::MENU;
 				selectedItem = 0;
+			}
+		}
+	} else if (currentState == GameState::SETTINGS) {
+		// Меню настроек
+		if (Events::jpressed(GLFW_KEY_ESCAPE)) {
+			currentState = previousState;
+			settingsSelectedItem = 0;
+		}
+		// Навигация по настройкам (всего 9 пунктов: 0-2 - текстовые поля, 3-5 - чекбоксы, 6 - Сохранить, 7 - Назад)
+		if (Events::jpressed(GLFW_KEY_UP)) {
+			settingsSelectedItem = (settingsSelectedItem - 1 + 8) % 8;
+		}
+		if (Events::jpressed(GLFW_KEY_DOWN)) {
+			settingsSelectedItem = (settingsSelectedItem + 1) % 8;
+		}
+		
+		// Обработка ввода для редактирования полей
+		if (settings != nullptr) {
+			// Текстовые поля (0-2: дальность прорисовки, FOV, дальность тумана)
+			if (settingsSelectedItem >= 0 && settingsSelectedItem <= 2) {
+				if (!Events::codepoints.empty()) {
+					for (uint32_t codepoint : Events::codepoints) {
+						if (codepoint >= 48 && codepoint <= 57) { // Только цифры
+							std::string* target = nullptr;
+							switch (settingsSelectedItem) {
+								case 0: target = &settingsRenderDistInput; break;
+								case 1: target = &settingsFovInput; break;
+								case 2: target = &settingsFogDistInput; break;
+							}
+							if (target && target->size() < 10) {
+								*target += (char)codepoint;
+							}
+						}
+					}
+				}
+				if (Events::jpressed(GLFW_KEY_BACKSPACE)) {
+					std::string* target = nullptr;
+					switch (settingsSelectedItem) {
+						case 0: target = &settingsRenderDistInput; break;
+						case 1: target = &settingsFovInput; break;
+						case 2: target = &settingsFogDistInput; break;
+					}
+					if (target && !target->empty()) {
+						target->pop_back();
+					}
+				}
+			}
+			// Чекбоксы (3-5: полный экран, V-Sync, туман)
+			if (settingsSelectedItem >= 3 && settingsSelectedItem <= 5) {
+				if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
+					if (settingsSelectedItem == 3) {
+						settingsFullscreen = !settingsFullscreen;
+					} else if (settingsSelectedItem == 4) {
+						settingsVsync = !settingsVsync;
+					} else if (settingsSelectedItem == 5) {
+						settingsFogEnabled = !settingsFogEnabled;
+					}
+				}
+			}
+		}
+		
+		// Обработка кнопок
+		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
+			if (settingsSelectedItem == 6) {
+				// Сохранить
+				saveSettingsChanges();
+			} else if (settingsSelectedItem == 7) {
+				// Назад
+				currentState = previousState;
+				settingsSelectedItem = 0;
 			}
 		}
 	}
@@ -300,6 +382,8 @@ void Menu::draw(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int
 		drawCreateWorldMenu(batch, font, shader, windowWidth, windowHeight);
 	} else if (currentState == GameState::PAUSED) {
 		drawPauseMenu(batch, font, shader, windowWidth, windowHeight);
+	} else if (currentState == GameState::SETTINGS) {
+		drawSettingsMenu(batch, font, shader, windowWidth, windowHeight);
 	}
 }
 
@@ -488,6 +572,157 @@ void Menu::drawPauseMenu(Batch2D* batch, Font* font, Shader* shader, int windowW
 		batch->color = style.textColor;
 		font->draw(batch, shader, items[i], tx, ty, STYLE_SHADOW);
 	}
+}
+
+void Menu::drawSettingsMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight) {
+	// Используем размеры framebuffer для ортографической проекции (для HiDPI)
+	int fbWidth = Window::fbWidth > 0 ? Window::fbWidth : windowWidth;
+	int fbHeight = Window::fbHeight > 0 ? Window::fbHeight : windowHeight;
+	
+	// Устанавливаем ортографическую проекцию для UI
+	mat4 proj = ortho(0.0f, (float)fbWidth, (float)fbHeight, 0.0f, -1.0f, 1.0f);
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	
+	// PASS 1: Панели
+	glActiveTexture(GL_TEXTURE0);
+	batch->begin();
+	
+	// Затемняем фон (виньетка)
+	drawFullscreenTint(batch, shader, fbWidth, fbHeight, vec4(0.0f, 0.0f, 0.0f, 0.45f));
+	
+	// Панель окна настроек
+	int panelW = 600;
+	int panelH = 500;
+	int panelX = (fbWidth - panelW) / 2;
+	int panelY = (fbHeight - panelH) / 2;
+	drawBevelRect(batch, shader, (float)panelX, (float)panelY, (float)panelW, (float)panelH,
+	              style.panelColor, style.bevelLight, style.bevelDark);
+	
+	// Поля и кнопки
+	int w = 560;
+	int h = style.buttonH;
+	int x = panelX + (panelW - w) / 2;
+	int y0 = panelY + 60;
+	int gap = style.buttonGap;
+	int currentY = y0;
+	
+	// Отображаем редактируемые поля, если настройки доступны
+	if (settings != nullptr) {
+		// Graphics Settings - текстовые поля
+		// Дальность прорисовки (0)
+		bool sel0 = (settingsSelectedItem == 0);
+		drawTextField(batch, font, shader, "Дальность прорисовки:", settingsRenderDistInput, x, currentY, w, h, sel0, false);
+		currentY += h + gap;
+		
+		// FOV (1)
+		bool sel1 = (settingsSelectedItem == 1);
+		drawTextField(batch, font, shader, "FOV:", settingsFovInput, x, currentY, w, h, sel1, false);
+		currentY += h + gap;
+		
+		// Дальность тумана (2)
+		bool sel2 = (settingsSelectedItem == 2);
+		drawTextField(batch, font, shader, "Дальность тумана:", settingsFogDistInput, x, currentY, w, h, sel2, false);
+		currentY += h + gap + 10;
+		
+		// Display Settings - чекбоксы
+		// Полный экран (3)
+		bool sel3 = (settingsSelectedItem == 3);
+		std::string fullscreenValue = settingsFullscreen ? "Да" : "Нет";
+		drawTextField(batch, font, shader, "Полный экран:", fullscreenValue, x, currentY, w, h, sel3, false);
+		currentY += h + gap;
+		
+		// V-Sync (4) - чекбокс
+		bool sel4 = (settingsSelectedItem == 4);
+		std::string vsyncValue = settingsVsync ? "Вкл" : "Выкл";
+		drawTextField(batch, font, shader, "V-Sync:", vsyncValue, x, currentY, w, h, sel4, false);
+		currentY += h + gap;
+		
+		// Туман (5) - чекбокс
+		bool sel5 = (settingsSelectedItem == 5);
+		std::string fogValue = settingsFogEnabled ? "Вкл" : "Выкл";
+		drawTextField(batch, font, shader, "Туман:", fogValue, x, currentY, w, h, sel5, false);
+		currentY += h + gap + 10;
+	}
+	
+	// Кнопка "Сохранить" (6)
+	int saveY = currentY;
+	bool selSave = (settingsSelectedItem == 6);
+	drawBevelRect(batch, shader, (float)x, (float)saveY, (float)w, (float)h,
+	              selSave ? style.panelHover : style.panelColor,
+	              selSave ? style.bevelDark : style.bevelLight,
+	              selSave ? style.bevelLight : style.bevelDark);
+	
+	// Кнопка "Назад" (7)
+	int backY = saveY + h + gap;
+	bool selBack = (settingsSelectedItem == 7);
+	drawBevelRect(batch, shader, (float)x, (float)backY, (float)w, (float)h,
+	              selBack ? style.panelHover : style.panelColor,
+	              selBack ? style.bevelDark : style.bevelLight,
+	              selBack ? style.bevelLight : style.bevelDark);
+	
+	batch->render();
+	
+	// PASS 2: Текст
+	glActiveTexture(GL_TEXTURE0);
+	shader->use();
+	shader->uniformMatrix("u_projview", proj);
+	shader->uniform1i("u_texture", 0);
+	
+	batch->begin();
+	
+	// Заголовок
+	const std::wstring title = L"Настройки";
+	int tW = font->calcWidth(title);
+	int tX = (int)((fbWidth - tW) / 2);
+	batch->color = style.textColor;
+	font->draw(batch, shader, title, tX, panelY + 20, STYLE_SHADOW);
+	
+	// Текст на полях уже отрисован в drawTextField, но нужно перерисовать для обновления
+	if (settings != nullptr) {
+		int currentY = y0;
+		
+		// Перерисовываем текстовые поля
+		drawTextField(batch, font, shader, "Дальность прорисовки:", settingsRenderDistInput, x, currentY, w, h, settingsSelectedItem == 0, false);
+		currentY += h + gap;
+		drawTextField(batch, font, shader, "FOV:", settingsFovInput, x, currentY, w, h, settingsSelectedItem == 1, false);
+		currentY += h + gap;
+		drawTextField(batch, font, shader, "Дальность тумана:", settingsFogDistInput, x, currentY, w, h, settingsSelectedItem == 2, false);
+		currentY += h + gap + 10;
+		std::string fullscreenValue = settingsFullscreen ? "Да" : "Нет";
+		drawTextField(batch, font, shader, "Полный экран:", fullscreenValue, x, currentY, w, h, settingsSelectedItem == 3, false);
+		currentY += h + gap;
+		std::string vsyncValue = settingsVsync ? "Вкл" : "Выкл";
+		drawTextField(batch, font, shader, "V-Sync:", vsyncValue, x, currentY, w, h, settingsSelectedItem == 4, false);
+		currentY += h + gap;
+		std::string fogValue = settingsFogEnabled ? "Вкл" : "Выкл";
+		drawTextField(batch, font, shader, "Туман:", fogValue, x, currentY, w, h, settingsSelectedItem == 5, false);
+		currentY += h + gap + 10;
+	} else {
+		// Если настройки не загружены
+		std::wstring noSettings = L"Настройки не загружены";
+		int noSettingsW = font->calcWidth(noSettings);
+		int noSettingsX = x + (w - noSettingsW) / 2;
+		font->draw(batch, shader, noSettings, noSettingsX, y0, STYLE_SHADOW);
+	}
+	
+	// Текст на кнопке "Сохранить"
+	const std::wstring saveText = L"Сохранить";
+	int saveTW = font->calcWidth(saveText);
+	int saveTX = (int)(x + (w - saveTW) / 2);
+	int saveTY = (int)(saveY + (h - font->lineHeight()) / 2 + 1);
+	batch->color = style.textColor;
+	font->draw(batch, shader, saveText, saveTX, saveTY, STYLE_SHADOW);
+	
+	// Текст на кнопке "Назад"
+	const std::wstring backText = L"Назад";
+	int backTW = font->calcWidth(backText);
+	int backTX = (int)(x + (w - backTW) / 2);
+	int backTY = (int)(backY + (h - font->lineHeight()) / 2 + 1);
+	batch->color = style.textColor;
+	font->draw(batch, shader, backText, backTX, backTY, STYLE_SHADOW);
+	
+	batch->render();
 }
 
 void Menu::drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text,
@@ -898,7 +1133,10 @@ void Menu::handleMouseInteraction(int windowWidth, int windowHeight) {
 						currentState = GameState::PLAYING;
 						break;
 					case 2: // Настройки
-						// TODO: открыть настройки
+						previousState = GameState::MENU;
+						currentState = GameState::SETTINGS;
+						settingsSelectedItem = 0;
+						initSettingsEditValues();
 						break;
 					case 3: // Выход
 						menuAction = MenuAction::QUIT;
@@ -913,7 +1151,10 @@ void Menu::handleMouseInteraction(int windowWidth, int windowHeight) {
 						break;
 					}
 					case 1: // Настройки
-						// TODO: открыть настройки
+						previousState = GameState::MENU;
+						currentState = GameState::SETTINGS;
+						settingsSelectedItem = 0;
+						initSettingsEditValues();
 						break;
 					case 2: // Выход
 						menuAction = MenuAction::QUIT;
@@ -1080,13 +1321,154 @@ void Menu::handleMouseInteraction(int windowWidth, int windowHeight) {
 					currentState = GameState::PLAYING;
 					break;
 				case 1: // Настройки
-					// TODO: открыть настройки
+					previousState = GameState::PAUSED;
+					currentState = GameState::SETTINGS;
+					settingsSelectedItem = 0;
+					initSettingsEditValues();
 					break;
 				case 2: // Главное меню
 					currentState = GameState::MENU;
 					selectedItem = 0;
 					break;
 			}
+		}
+	} else if (currentState == GameState::SETTINGS) {
+		// Меню настроек
+		int panelW = 600;
+		int panelH = 500;
+		int panelX = (fbWidth - panelW) / 2;
+		int panelY = (fbHeight - panelH) / 2;
+		int w = 560;
+		int h = style.buttonH;
+		int x = panelX + (panelW - w) / 2;
+		int y0 = panelY + 60;
+		int gap = style.buttonGap;
+		
+		// Преобразуем координаты мыши из window coordinates в framebuffer coordinates
+		float mouseX = Events::x;
+		float mouseY = Events::y;
+		if (Window::width > 0 && Window::height > 0) {
+			mouseX = mouseX * ((float)fbWidth / (float)Window::width);
+			mouseY = mouseY * ((float)fbHeight / (float)Window::height);
+		}
+		
+		// Определяем, над каким полем находится курсор
+		int hoveredItem = -1;
+		if (settings != nullptr && mouseX >= x && mouseX <= x + w) {
+			int currentY = y0;
+			// Дальность прорисовки (0)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 0;
+			}
+			currentY += h + gap;
+			// FOV (1)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 1;
+			}
+			currentY += h + gap;
+			// Дальность тумана (2)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 2;
+			}
+			currentY += h + gap + 10;
+			// Полный экран (3)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 3;
+			}
+			currentY += h + gap;
+			// V-Sync (4)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 4;
+			}
+			currentY += h + gap;
+			// Туман (5)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 5;
+			}
+			currentY += h + gap + 10;
+			// Сохранить (6)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 6;
+			}
+			currentY += h + gap;
+			// Назад (7)
+			if (mouseY >= currentY && mouseY <= currentY + h) {
+				hoveredItem = 7;
+			}
+		}
+		
+		// Обновляем settingsSelectedItem при наведении мыши
+		if (hoveredItem >= 0) {
+			settingsSelectedItem = hoveredItem;
+		}
+		
+		// Обрабатываем клик мыши
+		if (Events::jclicked(GLFW_MOUSE_BUTTON_LEFT) && hoveredItem >= 0) {
+			if (settings != nullptr) {
+				// Чекбоксы (3-5)
+				if (hoveredItem == 3) {
+					settingsFullscreen = !settingsFullscreen;
+				} else if (hoveredItem == 4) {
+					settingsVsync = !settingsVsync;
+				} else if (hoveredItem == 5) {
+					settingsFogEnabled = !settingsFogEnabled;
+				} else if (hoveredItem == 6) {
+					// Сохранить
+					saveSettingsChanges();
+				} else if (hoveredItem == 7) {
+					// Назад
+					currentState = previousState;
+					settingsSelectedItem = 0;
+				}
+				// Текстовые поля (0-2) просто активируются при клике
+			}
+		}
+	}
+}
+
+void Menu::initSettingsEditValues() {
+	if (settings != nullptr) {
+		settingsFullscreen = settings->display.fullscreen;
+		settingsVsync = settings->display.swapInterval == 1;
+		
+		settingsRenderDistInput = std::to_string(settings->graphics.renderDistance);
+		settingsFovInput = std::to_string((int)settings->graphics.fov);
+		settingsFogDistInput = std::to_string((int)settings->graphics.fogDistance);
+		settingsFogEnabled = settings->graphics.fogEnabled;
+	}
+}
+
+void Menu::saveSettingsChanges() {
+	if (settings != nullptr) {
+		// Сохраняем изменения в settings
+		settings->display.fullscreen = settingsFullscreen;
+		settings->display.swapInterval = settingsVsync ? 1 : 0;
+		
+		try {
+			settings->graphics.renderDistance = std::stoi(settingsRenderDistInput);
+		} catch (...) {
+			settings->graphics.renderDistance = 3;
+		}
+		try {
+			settings->graphics.fov = (float)std::stoi(settingsFovInput);
+		} catch (...) {
+			settings->graphics.fov = 90.0f;
+		}
+		try {
+			settings->graphics.fogDistance = (float)std::stoi(settingsFogDistInput);
+		} catch (...) {
+			settings->graphics.fogDistance = 500.0f;
+		}
+		settings->graphics.fogEnabled = settingsFogEnabled;
+		
+		// Сохраняем в файл
+		std::string settingsPath = SettingsIO::getSettingsPath();
+		SettingsIO::saveSettings(settingsPath, *settings);
+		std::cout << "[MENU] Settings saved" << std::endl;
+		
+		// Применяем настройки
+		if (engine != nullptr) {
+			engine->applySettings();
 		}
 	}
 }

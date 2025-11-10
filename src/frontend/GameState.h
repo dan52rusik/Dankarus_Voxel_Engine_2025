@@ -6,7 +6,8 @@ enum class GameState {
 	WORLD_SELECT, // Выбор мира из списка
 	CREATE_WORLD, // Окно создания мира
 	PLAYING,      // Игра
-	PAUSED        // Пауза
+	PAUSED,       // Пауза
+	SETTINGS      // Настройки
 };
 
 #endif /* FRONTEND_GAMESTATE_H_ */

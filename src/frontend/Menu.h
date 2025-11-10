@@ -65,12 +65,21 @@ public:
 	// Обновить список миров
 	void refreshWorldList();
 	
+	// Получить указатель на настройки (для изменения)
+	struct GameSettings* getSettings() const { return settings; }
+	void setSettings(struct GameSettings* s) { settings = s; }
+	
+	// Установить указатель на Engine для применения настроек
+	void setEngine(class Engine* e) { engine = e; }
+	
 private:
 	GameState currentState;
 	MenuAction menuAction;
 	int selectedItem; // Выбранный пункт меню (для главного меню)
 	bool saveFileExists; // Существует ли сохранение
 	UIStyle style; // Стиль UI в стиле Minecraft
+	struct GameSettings* settings = nullptr; // Указатель на настройки
+	class Engine* engine = nullptr; // Указатель на Engine для применения настроек
 	
 	// Данные окна создания мира
 	std::string worldName; // Название мира
@@ -84,6 +93,18 @@ private:
 	int worldSelectSelectedItem; // Выбранный мир в списке
 	std::string worldsPath; // Путь к папке worlds
 	
+	// Данные экрана настроек
+	int settingsSelectedItem; // Выбранный пункт в настройках
+	GameState previousState; // Состояние до открытия настроек (для возврата)
+	
+	// Редактируемые значения настроек (копии для редактирования)
+	std::string settingsRenderDistInput;
+	std::string settingsFovInput;
+	std::string settingsFogDistInput;
+	bool settingsFullscreen;
+	bool settingsVsync;
+	bool settingsFogEnabled;
+	
 	// Отрисовка главного меню
 	void drawMainMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
@@ -96,15 +117,27 @@ private:
 	// Отрисовка окна создания мира
 	void drawCreateWorldMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
 	
+	// Отрисовка экрана настроек
+	void drawSettingsMenu(Batch2D* batch, Font* font, Shader* shader, int windowWidth, int windowHeight);
+	
 	// Вспомогательная функция для отрисовки кнопки
 	void drawButton(Batch2D* batch, Font* font, Shader* shader, const std::wstring& text, int x, int y, int width, int height, bool selected);
 	
 	// Вспомогательная функция для отрисовки текстового поля
 	void drawTextField(Batch2D* batch, Font* font, Shader* shader, const std::string& label, const std::string& value, int x, int y, int width, int height, bool selected, bool active);
 	
+	// Вспомогательная функция для отрисовки слайдера
+	void drawSlider(Batch2D* batch, Font* font, Shader* shader, const std::string& label, float value, float min, float max, int x, int y, int width, int height, bool selected);
+	
 	// Вспомогательные функции для обработки мыши
 	int getMouseHoveredItem(int fbWidth, int fbHeight, int itemCount, int buttonX, int buttonY, int buttonW, int buttonH, int buttonGap, int startY);
 	void handleMouseInteraction(int windowWidth, int windowHeight);
+	
+	// Инициализация редактируемых значений настроек
+	void initSettingsEditValues();
+	
+	// Сохранение настроек
+	void saveSettingsChanges();
 };
 
 #endif /* FRONTEND_MENU_H_ */

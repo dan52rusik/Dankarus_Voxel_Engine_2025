@@ -22,6 +22,8 @@ namespace lighting {
     class LightingSystem;
 }
 
+struct GameSettings;
+
 class Engine {
 public:
     Engine();
@@ -48,7 +50,14 @@ public:
     WorldManager* getWorldManager() const { return worldManager; }
     lighting::LightingSystem* getLightingSystem() const { return lightingSystem; }
     
-    // Параметры
+    // Настройки
+    GameSettings* settings = nullptr;
+    
+    // Геттеры/сеттеры для настроек
+    GameSettings* getSettings() const { return settings; }
+    void applySettings(); // Применить настройки к системам (камера, renderDistance, etc.)
+    
+    // Параметры (legacy, будут заменены на settings)
     int WIDTH = 1280;
     int HEIGHT = 720;
     float baseFreq = 0.03f;
