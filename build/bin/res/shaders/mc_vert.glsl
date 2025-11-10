@@ -10,12 +10,14 @@ uniform mat4 model;
 uniform mat4 projview;
 
 void main() {
-	mat3 nmat = mat3(transpose(inverse(model)));
-	a_normal = normalize(nmat * v_normal);
-	
-	// Вычисляем мировую позицию
+	// Вычисляем мировую позицию ПЕРЕД трансформацией нормалей
 	vec4 worldPos = model * vec4(v_position, 1.0);
 	a_worldPos = worldPos.xyz;
+	
+	// Трансформируем нормали (только если model не чистая трансляция)
+	// Для чистой трансляции можно использовать просто v_normal
+	mat3 nmat = mat3(transpose(inverse(model)));
+	a_normal = normalize(nmat * v_normal);
 	
 	gl_Position = projview * worldPos;
 }

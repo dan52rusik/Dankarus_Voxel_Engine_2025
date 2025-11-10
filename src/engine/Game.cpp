@@ -464,6 +464,13 @@ void Game::render() {
     }
 }
 
+// Структура для точечных источников света
+struct LightCPU {
+    glm::vec3 pos;    // центр блока (ix+0.5, iy+0.5, iz+0.5)
+    glm::vec3 color;  // цвет света
+    float radius;     // радиус действия
+};
+
 void Game::renderWorld() {
     ChunkManager* chunkManager = engine->getChunkManager();
     Camera* camera = engine->getCamera();
@@ -475,17 +482,66 @@ void Game::renderWorld() {
     mat4 projview = camera->getProjection() * camera->getView();
     mat4 model(1.0f);
     
+    // Собираем все лампы (блоки с id=2) из видимых чанков
+    std::vector<LightCPU> frameLights;
+    std::vector<MCChunk*> visibleChunks = chunkManager->getVisibleChunks();
+    
+    // Собираем лампы из видимых чанков
+    for (MCChunk* chunk : visibleChunks) {
+        if (chunk->voxelMesh == nullptr) continue;
+        
+        // Проверяем все блоки в чанке
+        for (int y = 0; y < MCChunk::CHUNK_SIZE_Y; y++) {
+            for (int z = 0; z < MCChunk::CHUNK_SIZE_Z; z++) {
+                for (int x = 0; x < MCChunk::CHUNK_SIZE_X; x++) {
+                    voxel* vox = chunk->getVoxel(x, y, z);
+                    if (vox != nullptr && vox->id == 2) {
+                        // Нашли лампу - добавляем в список источников света
+                        float wx = chunk->worldPos.x - MCChunk::CHUNK_SIZE_X / 2.0f + (float)x;
+                        float wy = chunk->worldPos.y - MCChunk::CHUNK_SIZE_Y / 2.0f + (float)y;
+                        float wz = chunk->worldPos.z - MCChunk::CHUNK_SIZE_Z / 2.0f + (float)z;
+                        
+                        LightCPU light;
+                        light.pos = glm::vec3(wx + 0.5f, wy + 0.5f, wz + 0.5f); // центр блока
+                        light.color = glm::vec3(1.0f, 0.95f, 0.8f); // теплый желтый/оранжевый
+                        light.radius = 12.0f; // радиус действия (в блоках)
+                        
+                        frameLights.push_back(light);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Ограничиваем количество источников света
+    const int MAX_LIGHTS = 32;
+    int nLights = std::min((int)frameLights.size(), MAX_LIGHTS);
+    
+    // Нормализуем направление света на CPU перед передачей (используем для обоих шейдеров)
+    vec3 lightDir = normalize(vec3(0.4f, 0.8f, 0.4f));
+    
     // Отрисовываем Marching Cubes (поверхность земли)
     shader->use();
     shader->uniformMatrix("projview", projview);
     // Передаем параметры для процедурного текстурирования
     shader->uniform1f("u_baseHeight", engine->baseHeight);
     shader->uniform1f("u_heightVariation", engine->heightVariation);
-    // Нормализуем направление света на CPU перед передачей
-    vec3 lightDir = normalize(vec3(0.4f, 0.8f, 0.4f));
+    // Передаем размер клетки MC (для правильного масштаба освещения)
+    // MC-сетка обычно имеет cellSize = 1 (как воксели), но может быть и больше
+    shader->uniform1f("u_cellSize", 1.0f); // Пока захардкожено, можно вынести в Engine
+    // Передаем направление света
     shader->uniform3f("u_lightDir", lightDir.x, lightDir.y, lightDir.z);
     
-    std::vector<MCChunk*> visibleChunks = chunkManager->getVisibleChunks();
+    // Передаем точечные источники света в шейдер MC
+    shader->uniform1i("u_lightCount", nLights);
+    for (int i = 0; i < nLights; i++) {
+        std::string posName = "u_lights[" + std::to_string(i) + "].pos";
+        std::string colorName = "u_lights[" + std::to_string(i) + "].color";
+        std::string radiusName = "u_lights[" + std::to_string(i) + "].radius";
+        shader->uniform3f(posName, frameLights[i].pos.x, frameLights[i].pos.y, frameLights[i].pos.z);
+        shader->uniform3f(colorName, frameLights[i].color.x, frameLights[i].color.y, frameLights[i].color.z);
+        shader->uniform1f(radiusName, frameLights[i].radius);
+    }
     for (MCChunk* chunk : visibleChunks) {
         if (chunk->mesh != nullptr) {
             // Frustum culling для чанка
@@ -533,6 +589,21 @@ void Game::renderWorld() {
                                lightingSystem->getSkyLightColor().y,
                                lightingSystem->getSkyLightColor().z);
         voxelShader->uniform1f("u_gamma", lightingSystem->getGamma());
+    }
+    
+    // Передаем направленный свет от солнца в шейдер voxel (используем тот же lightDir)
+    voxelShader->uniform3f("u_lightDir", lightDir.x, lightDir.y, lightDir.z);
+    voxelShader->uniform3f("u_sunColor", 1.0f, 1.0f, 1.0f);
+    
+    // Передаем точечные источники света в шейдер voxel
+    voxelShader->uniform1i("u_lightCount", nLights);
+    for (int i = 0; i < nLights; i++) {
+        std::string posName = "u_lights[" + std::to_string(i) + "].pos";
+        std::string colorName = "u_lights[" + std::to_string(i) + "].color";
+        std::string radiusName = "u_lights[" + std::to_string(i) + "].radius";
+        voxelShader->uniform3f(posName, frameLights[i].pos.x, frameLights[i].pos.y, frameLights[i].pos.z);
+        voxelShader->uniform3f(colorName, frameLights[i].color.x, frameLights[i].color.y, frameLights[i].color.z);
+        voxelShader->uniform1f(radiusName, frameLights[i].radius);
     }
     
     // Убеждаемся, что текстура правильно привязана

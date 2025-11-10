@@ -7,6 +7,24 @@ out vec4 f_color;
 uniform vec3 u_lightDir;           // передавай нормализованным из CPU
 uniform float u_baseHeight;
 uniform float u_heightVariation;
+uniform float u_cellSize;          // размер клетки MC в «воксельных» единицах (обычно 1, 2, 4...)
+
+struct Light {
+    vec3 pos;
+    vec3 color;
+    float radius;
+};
+
+uniform int u_lightCount;
+uniform Light u_lights[32];
+
+uniform vec3 u_ambient = vec3(0.05);
+
+// Плавная функция затухания
+float atten(float d, float r) {
+    float x = clamp(1.0 - d/r, 0.0, 1.0);
+    return x*x*(3.0 - 2.0*x); // smoothstep-подобное
+}
 
 // Улучшенный хэш без sin() - быстрый и без полос
 uint h2u(vec2 p) {
@@ -159,6 +177,8 @@ vec3 biomeColor(float normalizedHeight, float slope, vec3 normal) {
 
 void main() {
     vec3 N = normalize(a_normal);
+    // Sanity-чек на нормали (на всякий случай)
+    if (length(N) < 1e-5) N = vec3(0.0, 1.0, 0.0);
     float slope = clamp(1.0 - abs(N.y), 0.0, 1.0);
     
     float minH = u_baseHeight - u_heightVariation;
@@ -188,6 +208,34 @@ void main() {
     float NdotL = max(dot(N, normalize(u_lightDir)), 0.0);
     vec3 colLit = col * (0.15 * hemi + 0.85 * NdotL);
     col = colLit;
+    
+    // Добавляем освещение от точечных источников света (ламп)
+    vec3 pointLightColor = vec3(0.0);
+    const int MAX_LIGHTS = 32;
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        if (i >= u_lightCount) break;
+        
+        vec3 L = u_lights[i].pos - a_worldPos;
+        float d = length(L);
+        
+        // Приводим расстояние к «воксельным» единицам (MC-сетка может быть крупнее)
+        float d_voxel = d * (1.0 / u_cellSize);
+        
+        // Проверяем расстояние до источника света
+        if (d_voxel > u_lights[i].radius) continue;
+        if (d < 0.01) continue; // Избегаем деления на ноль
+        
+        vec3 Ldir = normalize(L);
+        float ndotl = max(dot(N, Ldir), 0.0);
+        
+        // Используем расстояние в воксельных единицах для затухания
+        float a = atten(d_voxel, u_lights[i].radius);
+        pointLightColor += col * u_lights[i].color * ndotl * a;
+    }
+    col += pointLightColor;
+    
+    // DEBUG: подсветим, если есть хоть один свет
+    if (u_lightCount > 0) col += vec3(0.0, 0.02, 0.0);
     
     // Фейковая AO от склона - тени подчеркивают рельеф
     col *= mix(1.0, 0.85, slope);

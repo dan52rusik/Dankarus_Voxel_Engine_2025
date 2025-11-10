@@ -6,7 +6,7 @@
 #include "../lighting/Lighting.h"
 #include <glm/glm.hpp>
 
-#define VERTEX_SIZE (3 + 2 + 1 + 1) // position(3) + texCoord(2) + light(1) + blockId(1)
+#define VERTEX_SIZE (3 + 3 + 2 + 1 + 1) // position(3) + normal(3) + texCoord(2) + light(1) + blockId(1)
 
 // Простая проверка: если координата внутри чанка, проверяем блок, иначе считаем, что блок не заблокирован
 static bool isBlocked(MCChunk* chunk, MCChunk** nearbyChunks, int lx, int ly, int lz) {
@@ -37,16 +37,19 @@ static bool isBlocked(MCChunk* chunk, MCChunk** nearbyChunks, int lx, int ly, in
 	return (vox != nullptr && vox->id != 0);
 }
 
-#define VERTEX(INDEX, X,Y,Z, U,V, L, ID) buffer[INDEX+0] = (X);\
+#define VERTEX(INDEX, X,Y,Z, NX,NY,NZ, U,V, L, ID) buffer[INDEX+0] = (X);\
 								  buffer[INDEX+1] = (Y);\
 								  buffer[INDEX+2] = (Z);\
-								  buffer[INDEX+3] = (U);\
-								  buffer[INDEX+4] = (V);\
-								  buffer[INDEX+5] = (L);\
-								  buffer[INDEX+6] = (ID);\
+								  buffer[INDEX+3] = (NX);\
+								  buffer[INDEX+4] = (NY);\
+								  buffer[INDEX+5] = (NZ);\
+								  buffer[INDEX+6] = (U);\
+								  buffer[INDEX+7] = (V);\
+								  buffer[INDEX+8] = (L);\
+								  buffer[INDEX+9] = (ID);\
 								  INDEX += VERTEX_SIZE;
 
-int chunk_attrs[] = {3,2,1,1, 0}; // position(3), texCoord(2), light(1), blockId(1)
+int chunk_attrs[] = {3,3,2,1,1, 0}; // position(3), normal(3), texCoord(2), light(1), blockId(1)
 
 VoxelRenderer::VoxelRenderer(size_t capacity) : capacity(capacity) {
 	buffer = new float[capacity * VERTEX_SIZE * 6];
@@ -90,13 +93,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(0.0f, 1.0f, 0.0f); // Нормаль верхней грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(0.0f, 1.0f, 0.0f);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
 				}
 				
 				// Нижняя грань
@@ -109,13 +113,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(0.0f, -1.0f, 0.0f); // Нормаль нижней грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(0.0f, -1.0f, 0.0f);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Правая грань (+X)
@@ -128,13 +133,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(1.0f, 0.0f, 0.0f); // Нормаль правой грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(1.0f, 0.0f, 0.0f);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
 				}
 				
 				// Левая грань (-X)
@@ -147,13 +153,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(-1.0f, 0.0f, 0.0f); // Нормаль левой грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(-1.0f, 0.0f, 0.0f);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Передняя грань (+Z)
@@ -166,13 +173,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(0.0f, 0.0f, 1.0f); // Нормаль передней грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(0.0f, 0.0f, 1.0f);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, u, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz + 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
 				}
 				
 				// Задняя грань (-Z)
@@ -185,13 +193,14 @@ Mesh* VoxelRenderer::render(MCChunk* chunk, MCChunk** nearbyChunks, lighting::Li
 						glm::vec3 faceNormal(0.0f, 0.0f, -1.0f); // Нормаль задней грани
 						l = lightingSystem->getFaceLight(bx, by, bz, faceNormal);
 					}
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, u+uvsize, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
+					glm::vec3 normal(0.0f, 0.0f, -1.0f);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
 					
-					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, u+uvsize, v, l, blockId);
-					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, u, v+uvsize, l, blockId);
-					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, u, v, l, blockId);
+					VERTEX(index, wx - 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u+uvsize, v, l, blockId);
+					VERTEX(index, wx + 0.5f, wy + 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v+uvsize, l, blockId);
+					VERTEX(index, wx + 0.5f, wy - 0.5f, wz - 0.5f, normal.x, normal.y, normal.z, u, v, l, blockId);
 				}
 			}
 		}

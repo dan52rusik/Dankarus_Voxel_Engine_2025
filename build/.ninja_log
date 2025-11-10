@@ -4,13 +4,13 @@
 996	2090	7843364100619958	CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj	4690cb0ac405d9b2
 374	951	7843364094401489	CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj	3a124811e88ac007
 93	874	7843364091599512	CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj	ec47ded9c5dd72b5
-19	657	7844816742659185	CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj	3fc632e13540212e
+24	771	7844859052987305	CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj	3fc632e13540212e
 105	1007	7843364091709289	CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj	579b611177270703
 1007	2251	7843364100732799	CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj	2133e1497905817a
 989	2193	7843364100549963	CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj	d26d9d24ccc66332
 36	1115	7844075697909418	CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj	5ba1503ce300a46c
 24	1577	7844785964281402	CMakeFiles/VoxelNoxel.dir/src/voxel_engine.cpp.obj	2e5e0aaaa4623a9
-1208	1493	7844842026222313	bin/VoxelNoxel.exe	d64cefd34c7e2d3
+1425	1704	7844876058506183	bin/VoxelNoxel.exe	d64cefd34c7e2d3
 118	735	7843364091839366	CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj	a17cccbd37d5bcf1
 70	1424	7843364091359864	CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj	ed6812373708c2c9
 874	2094	7843364099397133	CMakeFiles/VoxelNoxel.dir/src/voxels/MCChunk.cpp.obj	10fec85a55be62ae
@@ -31,8 +31,8 @@
 36	826	7844792819023642	CMakeFiles/VoxelNoxel.dir/src/engine/Renderer.cpp.obj	676bd31373a335cb
 40	858	7844792819063636	CMakeFiles/VoxelNoxel.dir/src/engine/WorldManager.cpp.obj	b1f218d4503c6590
 24	1011	7844809731975882	CMakeFiles/VoxelNoxel.dir/src/engine/Engine.cpp.obj	2907e5cf1238b8e4
-26	1207	7844842014408878	CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj	a0a49ce834e93f8c
+18	1424	7844876044450711	CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj	a0a49ce834e93f8c
 29	527	7844806498315474	CMakeFiles/VoxelNoxel.dir/src/lighting/Lighting.cpp.obj	93e81a1d5a6f9881
 34	770	7844809732065936	CMakeFiles/VoxelNoxel.dir/src/lighting/LightingSystem.cpp.obj	414274c8aed71655
-18	1175	7844845984041951	CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj	a0a49ce834e93f8c
-1175	1464	7844845995617309	bin/VoxelNoxel.exe	d64cefd34c7e2d3
+25	1423	7844883388481057	CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj	a0a49ce834e93f8c
+1424	1757	7844883402464113	bin/VoxelNoxel.exe	d64cefd34c7e2d3
