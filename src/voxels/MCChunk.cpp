@@ -68,15 +68,19 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 	densityField.resize(SX * SY * SZ);
 	
 	// Генерируем поле плотности для этого чанка
+	// ВАЖНО: используем одинаковые мировые координаты для всех чанков,
+	// чтобы значения на границах совпадали
 	for (int y = 0; y < SY; y++) {
 		for (int z = 0; z < SZ; z++) {
 			for (int x = 0; x < SX; x++) {
 				// Мировые координаты точки
-				float wx = worldPos.x - CHUNK_SIZE_X / 2.0f + (float)x;
-				float wy = worldPos.y - CHUNK_SIZE_Y / 2.0f + (float)y;
-				float wz = worldPos.z - CHUNK_SIZE_Z / 2.0f + (float)z;
+				// Используем точные мировые координаты, чтобы значения на границах совпадали
+				float wx = (float)(chunkPos.x * CHUNK_SIZE_X + x);
+				float wy = (float)(chunkPos.y * CHUNK_SIZE_Y + y);
+				float wz = (float)(chunkPos.z * CHUNK_SIZE_Z + z);
 				
 				// Вычисляем высоту поверхности в точке (x, z) используя шум только по X и Z
+				// ВАЖНО: используем те же мировые координаты, что и в соседних чанках
 				float heightNoise = noise.fbm(wx * baseFreq, 0.0f, wz * baseFreq, octaves, lacunarity, gain);
 				float surfaceHeight = baseHeight + heightNoise * heightVariation;
 				
@@ -99,9 +103,10 @@ float MCChunk::getDensity(const glm::vec3& worldPos) const {
 	}
 	
 	// Вычисляем локальные координаты от начала чанка
-	float localX = worldPos.x - (this->worldPos.x - CHUNK_SIZE_X / 2.0f);
-	float localY = worldPos.y - (this->worldPos.y - CHUNK_SIZE_Y / 2.0f);
-	float localZ = worldPos.z - (this->worldPos.z - CHUNK_SIZE_Z / 2.0f);
+	// Используем те же координаты, что и при генерации
+	float localX = worldPos.x - (float)(chunkPos.x * CHUNK_SIZE_X);
+	float localY = worldPos.y - (float)(chunkPos.y * CHUNK_SIZE_Y);
+	float localZ = worldPos.z - (float)(chunkPos.z * CHUNK_SIZE_Z);
 	
 	// Проверяем границы
 	if (localX < 0 || localX >= CHUNK_SIZE_X + 1 ||
