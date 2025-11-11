@@ -1,0 +1,25 @@
+{
+  "generator": "voxelnoxel:terrain",
+  "generator-params": {
+    "baseFreq": 0.03,
+    "baseHeight": 12,
+    "gain": 0.5,
+    "heightVariation": 4,
+    "lacunarity": 2,
+    "octaves": 4
+  },
+  "name": "Новыйda",
+  "seed": 107264326,
+  "time": {
+    "day-time": 0.5,
+    "day-time-speed": 1,
+    "total-time": 0
+  },
+  "version": {
+    "major": 0,
+    "minor": 1
+  },
+  "weather": {
+    "fog": 0
+  }
+}

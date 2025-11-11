@@ -1,14 +1,18 @@
 #include "ChunkManager.h"
 #include "../maths/voxmaths.h"
+#include "../graphics/MarchingCubes.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <unordered_map>
 #include <string>
+#include <memory>
+#include <cctype>
 
 ChunkManager::ChunkManager() 
 	: noise(1337), baseFreq(0.03f), octaves(4), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(12.0f), heightVariation(4.0f) {
+	  baseHeight(12.0f), heightVariation(4.0f), heightMap(nullptr),
+	  heightMapBaseHeight(0.0f), heightMapScale(1.0f) {
 }
 
 ChunkManager::~ChunkManager() {
@@ -47,7 +51,36 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 	}
 	
 	MCChunk* chunk = new MCChunk(cx, cy, cz);
-	chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	
+	// Если есть высотная карта, используем её, иначе процедурная генерация
+	if (heightMap != nullptr) {
+		// Генерируем поле плотности из высотной карты
+		const int NX = MCChunk::CHUNK_SIZE_X;
+		const int NY = MCChunk::CHUNK_SIZE_Y;
+		const int NZ = MCChunk::CHUNK_SIZE_Z;
+		const int SX = NX + 1;
+		const int SY = NY + 1;
+		const int SZ = NZ + 1;
+		
+		std::vector<float> densityField;
+		densityField.resize(SX * SY * SZ);
+		
+		// Используем утилиту для конвертации (с билинейной интерполяцией)
+		HeightMapUtils::convertHeightMapToDensityField(*heightMap, densityField,
+		                                                cx, cy, cz,
+		                                                NX, NY, NZ,
+		                                                heightMapBaseHeight, heightMapScale,
+		                                                true,  // useBilinear = true
+		                                                0);    // edgeMode = clamp
+		
+		// Генерируем меш из поля плотности
+		chunk->mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+		chunk->generated = true;
+	} else {
+		// Обычная процедурная генерация
+		chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	}
+	
 	chunks[key] = chunk;
 }
 
@@ -139,6 +172,64 @@ void ChunkManager::setSeed(int64_t seed) {
 	// Пересоздаем объект noise с новым seed используя placement new
 	noise.~OpenSimplex3D();
 	new (&noise) OpenSimplex3D(seed);
+}
+
+// ==================== Работа с высотными картами ====================
+
+void ChunkManager::setHeightMap(const std::string& filepath) {
+	// Определяем тип файла по расширению
+	size_t dotPos = filepath.find_last_of(".");
+	if (dotPos == std::string::npos) {
+		std::cerr << "[ChunkManager] Invalid filepath (no extension): " << filepath << std::endl;
+		return;
+	}
+	std::string ext = filepath.substr(dotPos + 1);
+	// Преобразуем в нижний регистр
+	for (char& c : ext) {
+		c = std::tolower(c);
+	}
+	
+	HeightMapUtils::HeightData2D* loadedMap = nullptr;
+	
+	if (ext == "raw") {
+		// Пробуем загрузить RAW (автоопределение размера)
+		loadedMap = HeightMapUtils::loadRAWToHeightData(filepath);
+		if (loadedMap == nullptr) {
+			// Если не получилось, пробуем с указанными размерами (например, 1024x1024)
+			loadedMap = HeightMapUtils::loadHeightMapRAW(filepath, 1024, 1024);
+		}
+	} else if (ext == "png" || ext == "tga") {
+		loadedMap = HeightMapUtils::convertDTMToHeightData(filepath);
+	}
+	
+	if (loadedMap != nullptr) {
+		heightMap.reset(loadedMap);
+		std::cout << "[ChunkManager] Height map loaded: " << filepath 
+		          << " (" << loadedMap->width << "x" << loadedMap->height << ")" << std::endl;
+		// Очищаем все чанки, чтобы перегенерировать с новой картой
+		clear();
+	} else {
+		std::cerr << "[ChunkManager] Failed to load height map: " << filepath << std::endl;
+	}
+}
+
+void ChunkManager::setHeightMap(HeightMapUtils::HeightData2D* heightMap) {
+	if (heightMap != nullptr) {
+		this->heightMap.reset(heightMap);
+		clear(); // Перегенерируем чанки
+	}
+}
+
+void ChunkManager::clearHeightMap() {
+	heightMap.reset();
+	clear(); // Перегенерируем чанки
+}
+
+void ChunkManager::setHeightMapScale(float baseHeight, float scale) {
+	heightMapBaseHeight = baseHeight;
+	heightMapScale = scale;
+	// Перегенерируем все чанки с новым масштабом
+	clear();
 }
 
 voxel* ChunkManager::getVoxel(int x, int y, int z) {

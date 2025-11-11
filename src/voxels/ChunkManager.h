@@ -4,11 +4,13 @@
 #include "MCChunk.h"
 #include "voxel.h"
 #include "noise/OpenSimplex.h"
+#include "HeightMapUtils.h"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <string>
 #include <vector>
 #include <limits>
+#include <memory>
 
 class ChunkManager {
 public:
@@ -28,6 +30,13 @@ public:
 	void setNoiseParams(float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
 	void getNoiseParams(float& baseFreq, int& octaves, float& lacunarity, float& gain, float& baseHeight, float& heightVariation) const;
 	void setSeed(int64_t seed); // Установить seed для генерации мира
+	
+	// Работа с высотными картами
+	void setHeightMap(const std::string& filepath); // Загрузить высотную карту из файла (PNG/RAW)
+	void setHeightMap(HeightMapUtils::HeightData2D* heightMap); // Установить высотную карту напрямую
+	void clearHeightMap(); // Очистить высотную карту (вернуться к процедурной генерации)
+	bool hasHeightMap() const { return heightMap != nullptr; }
+	void setHeightMapScale(float baseHeight, float heightScale); // Настройка масштаба высотной карты
 	
 	// Очистка всех чанков (для создания нового мира)
 	void clear();
@@ -49,6 +58,11 @@ private:
 	float gain;
 	float baseHeight;
 	float heightVariation;
+	
+	// Высотная карта (опционально)
+	std::unique_ptr<HeightMapUtils::HeightData2D> heightMap;
+	float heightMapBaseHeight; // Базовая высота для масштабирования
+	float heightMapScale; // Масштаб высот (умножается на значения из карты)
 	
 	// Вспомогательные функции
 	std::string chunkKey(int cx, int cy, int cz) const;

@@ -20,9 +20,9 @@
     "width": 1280
   },
   "graphics": {
-    "fogDistance": 1,
+    "fogDistance": 10,
     "fogEnabled": true,
-    "fov": 50,
+    "fov": 100,
     "renderDistance": 5
   }
 }
