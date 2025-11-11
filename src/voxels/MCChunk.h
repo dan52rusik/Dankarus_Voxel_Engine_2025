@@ -17,8 +17,10 @@ public:
 	glm::vec3 worldPos;  // Позиция чанка в мире (центр чанка)
 	Mesh* mesh; // Меш для Marching Cubes (поверхность земли)
 	Mesh* voxelMesh; // Меш для воксельных блоков
+	Mesh* waterMesh; // Меш для воды
 	bool generated;
 	bool voxelMeshModified; // Флаг для пересборки меша вокселей
+	bool waterMeshModified; // Флаг для пересборки меша воды
 	bool dirty; // Флаг для отслеживания изменений чанка (для сохранения)
 	
 	// Параметры генерации
@@ -54,6 +56,15 @@ public:
 	// или функция для получения уровня воды в точке (worldX, worldZ)
 	void generateWater(float waterLevel);
 	void generateWater(std::function<float(int, int)> getWaterLevelFunc);
+	
+	// Применение модификаций из WorldBuilder
+	// Применяет дороги, озера и префабы к чанку после генерации террейна
+	void applyWorldBuilderModifications(
+		const std::vector<uint8_t>& roadMap,      // Карта дорог (worldSize * worldSize)
+		const std::vector<float>& waterMap,        // Карта воды (worldSize * worldSize)
+		int worldSize,                             // Размер мира
+		void* prefabManager                        // Менеджер префабов (PrefabSystem::PrefabManager*)
+	);
 	
 	// Проверка, является ли воксель твёрдым (на основе densityField)
 	// Используется для предотвращения заливки воды в грунт

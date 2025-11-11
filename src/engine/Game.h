@@ -26,7 +26,7 @@ private:
     void render();
     void handleInput(float delta);
     void handleMenuActions();
-    void updateWorld();
+    void updateWorld(float delta);
     void renderWorld();
     void renderUI();
     

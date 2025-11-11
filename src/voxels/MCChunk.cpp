@@ -1,6 +1,9 @@
 #include "MCChunk.h"
 #include "graphics/MarchingCubes.h"
 #include "WaterData.h"
+#include "WaterUtils.h"
+#include "PrefabManager.h"
+#include "Path.h"
 #include <vector>
 #include <iostream>
 #include <glm/glm.hpp>
@@ -27,7 +30,8 @@ static inline float terrace(float h, float steps = 6.0f, float intensity = 0.35f
 }
 
 MCChunk::MCChunk(int cx, int cy, int cz) 
-	: chunkPos(cx, cy, cz), mesh(nullptr), voxelMesh(nullptr), generated(false), voxelMeshModified(true), dirty(false), waterData(nullptr) {
+	: chunkPos(cx, cy, cz), mesh(nullptr), voxelMesh(nullptr), waterMesh(nullptr), 
+	  generated(false), voxelMeshModified(true), waterMeshModified(true), dirty(false), waterData(nullptr) {
 	// Вычисляем позицию в мире (центр чанка)
 	worldPos = glm::vec3(
 		cx * CHUNK_SIZE_X + CHUNK_SIZE_X / 2.0f,
@@ -53,12 +57,13 @@ MCChunk::~MCChunk() {
 	if (voxelMesh != nullptr) {
 		delete voxelMesh;
 	}
-	if (voxels != nullptr) {
-		delete[] voxels;
+	if (waterMesh != nullptr) {
+		delete waterMesh;
 	}
 	if (waterData != nullptr) {
 		delete waterData;
 	}
+	delete[] voxels;
 }
 
 voxel* MCChunk::getVoxel(int lx, int ly, int lz) {
@@ -358,6 +363,9 @@ void MCChunk::generateWater(std::function<float(int, int)> getWaterLevelFunc) {
 			}
 		}
 	}
+	
+	// Помечаем меш воды для пересборки
+	waterMeshModified = true;
 }
 
 float MCChunk::getDensity(const glm::vec3& worldPos) const {
@@ -422,5 +430,144 @@ float MCChunk::getDensity(const glm::vec3& worldPos) const {
 	float d1 = d01 * (1.0f - fy) + d11 * fy;
 	
 	return d0 * (1.0f - fz) + d1 * fz;
+}
+
+// Применение модификаций из WorldBuilder
+void MCChunk::applyWorldBuilderModifications(
+	const std::vector<uint8_t>& roadMap,
+	const std::vector<float>& waterMap,
+	int worldSize,
+	void* prefabManagerPtr) {
+	
+	if (roadMap.empty() && waterMap.empty() && prefabManagerPtr == nullptr) {
+		return; // Нет данных для применения
+	}
+	
+	// Приводим prefabManager к нужному типу
+	PrefabSystem::PrefabManager* prefabManager = static_cast<PrefabSystem::PrefabManager*>(prefabManagerPtr);
+	
+	// Вычисляем мировые координаты начала чанка
+	int chunkWorldX = chunkPos.x * CHUNK_SIZE_X;
+	int chunkWorldY = chunkPos.y * CHUNK_SIZE_Y;
+	int chunkWorldZ = chunkPos.z * CHUNK_SIZE_Z;
+	
+	// Применяем дороги
+	if (!roadMap.empty() && roadMap.size() == static_cast<size_t>(worldSize * worldSize)) {
+		using namespace Pathfinding;
+		
+		// Проходим по всем вокселям чанка
+		for (int z = 0; z < CHUNK_SIZE_Z; z++) {
+			for (int x = 0; x < CHUNK_SIZE_X; x++) {
+				int worldX = chunkWorldX + x;
+				int worldZ = chunkWorldZ + z;
+				
+				// Проверяем границы мира
+				if (worldX < 0 || worldX >= worldSize || worldZ < 0 || worldZ >= worldSize) {
+					continue;
+				}
+				
+				int mapIndex = worldX + worldZ * worldSize;
+				uint8_t roadId = roadMap[mapIndex];
+				
+				if (roadId != PATH_FREE) {
+					// Есть дорога - понижаем высоту и устанавливаем блок дороги
+					// Находим поверхность (высоту террейна)
+					float surfaceHeight = 0.0f;
+					for (int y = CHUNK_SIZE_Y - 1; y >= 0; y--) {
+						if (isSolidLocal(x, y, z)) {
+							surfaceHeight = chunkWorldY + y + 1.0f;
+							break;
+						}
+					}
+					
+					// Понижаем высоту на 2 блока для дороги
+					int roadY = static_cast<int>(surfaceHeight - chunkWorldY) - 2;
+					if (roadY >= 0 && roadY < CHUNK_SIZE_Y) {
+						// Устанавливаем блок дороги (ID 5 = камень/асфальт)
+						setVoxel(x, roadY, z, 5);
+						
+						// Заполняем дорогу до поверхности
+						for (int y = roadY + 1; y < CHUNK_SIZE_Y && y < static_cast<int>(surfaceHeight - chunkWorldY); y++) {
+							if (!isSolidLocal(x, y, z)) {
+								setVoxel(x, y, z, 5);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Применяем озера (модификация высоты и воды)
+	if (!waterMap.empty() && waterMap.size() == static_cast<size_t>(worldSize * worldSize)) {
+		for (int z = 0; z < CHUNK_SIZE_Z; z++) {
+			for (int x = 0; x < CHUNK_SIZE_X; x++) {
+				int worldX = chunkWorldX + x;
+				int worldZ = chunkWorldZ + z;
+				
+				// Проверяем границы мира
+				if (worldX < 0 || worldX >= worldSize || worldZ < 0 || worldZ >= worldSize) {
+					continue;
+				}
+				
+				int mapIndex = worldX + worldZ * worldSize;
+				float waterLevel = waterMap[mapIndex];
+				
+				if (waterLevel > 0.0f) {
+					// Есть озеро - понижаем высоту и заполняем водой
+					// Находим текущую поверхность
+					float currentSurfaceHeight = 0.0f;
+					for (int y = CHUNK_SIZE_Y - 1; y >= 0; y--) {
+						if (isSolidLocal(x, y, z)) {
+							currentSurfaceHeight = chunkWorldY + y + 1.0f;
+							break;
+						}
+					}
+					
+					// Понижаем поверхность на величину waterLevel
+					float newSurfaceHeight = currentSurfaceHeight - waterLevel;
+					int newSurfaceY = static_cast<int>(newSurfaceHeight - chunkWorldY);
+					
+					// Удаляем блоки выше новой поверхности
+					for (int y = newSurfaceY + 1; y < CHUNK_SIZE_Y && y < static_cast<int>(currentSurfaceHeight - chunkWorldY); y++) {
+						voxel* vox = getVoxel(x, y, z);
+						if (vox != nullptr && vox->id != 0) {
+							setVoxel(x, y, z, 0); // Удаляем блок
+						}
+					}
+					
+					// Заполняем водой до уровня waterLevel
+					int waterY = static_cast<int>(waterLevel - chunkWorldY);
+					if (waterY >= 0 && waterY < CHUNK_SIZE_Y) {
+						for (int y = 0; y <= waterY && y < CHUNK_SIZE_Y; y++) {
+							if (!isSolidLocal(x, y, z)) {
+								waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+								waterData->setVoxelActive(x, y, z);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Применяем префабы
+	if (prefabManager != nullptr) {
+		// Получаем все префабы, которые пересекаются с этим чанком
+		// (это нужно реализовать в PrefabManager)
+		// Пока что просто проходим по всем префабам и проверяем пересечение
+		
+		// Вычисляем границы чанка в мировых координатах
+		glm::ivec3 chunkMin(chunkWorldX, chunkWorldY, chunkWorldZ);
+		glm::ivec3 chunkMax(chunkWorldX + CHUNK_SIZE_X, chunkWorldY + CHUNK_SIZE_Y, chunkWorldZ + CHUNK_SIZE_Z);
+		
+		// TODO: Реализовать получение префабов для чанка в PrefabManager
+		// Пока что оставляем заглушку
+	}
+	
+	// Помечаем чанк как измененный
+	dirty = true;
+	voxelMeshModified = true;
+	waterMeshModified = true; // Помечаем для пересборки меша воды
 }
 

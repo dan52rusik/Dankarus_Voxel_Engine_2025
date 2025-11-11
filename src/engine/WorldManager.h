@@ -8,6 +8,7 @@ class WorldSave;
 class Menu;
 class Camera;
 class WorldBuilder;
+class WaterSimulator;
 
 class WorldManager {
 public:

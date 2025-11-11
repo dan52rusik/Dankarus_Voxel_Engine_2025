@@ -93,6 +93,9 @@ public:
 	std::unordered_map<int, int>::iterator flowVoxelsBegin() { return flowVoxels.begin(); }
 	std::unordered_map<int, int>::iterator flowVoxelsEnd() { return flowVoxels.end(); }
 	
+	// Очистить потоки
+	void clearFlows() { flowVoxels.clear(); }
+	
 	// Получить все активные индексы вокселей
 	std::vector<int> getActiveVoxelIndices() const;
 	

@@ -238,6 +238,15 @@ build CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj: CXX_COMPILER
   OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
   OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\graphics
 
+build CMakeFiles/VoxelNoxel.dir/src/graphics/WaterRenderer.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/graphics/WaterRenderer.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\graphics\WaterRenderer.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\graphics
+
 build CMakeFiles/VoxelNoxel.dir/src/lighting/Lighting.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/lighting/Lighting.cpp || cmake_object_order_depends_target_VoxelNoxel
   CONFIG = Release
   DEFINES = -DGLEW_STATIC
@@ -562,10 +571,55 @@ build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingPlane.cpp.obj: CXX_COMPI
   OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
   OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
 
+build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingUtils.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterClippingUtils.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterClippingUtils.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
+
+build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingVolume.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterClippingVolume.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterClippingVolume.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
+
 build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterData.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterData.cpp || cmake_object_order_depends_target_VoxelNoxel
   CONFIG = Release
   DEFINES = -DGLEW_STATIC
   DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterData.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
+
+build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterEvaporationManager.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterEvaporationManager.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterEvaporationManager.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
+
+build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterNeighborCache.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterNeighborCache.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterNeighborCache.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17
+  INCLUDES = -IC:/MyGame/VoxelNoxel/src
+  OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
+  OBJECT_FILE_DIR = CMakeFiles\VoxelNoxel.dir\src\voxels
+
+build CMakeFiles/VoxelNoxel.dir/src/voxels/WaterSimulator.cpp.obj: CXX_COMPILER__VoxelNoxel_unscanned_Release C$:/MyGame/VoxelNoxel/src/voxels/WaterSimulator.cpp || cmake_object_order_depends_target_VoxelNoxel
+  CONFIG = Release
+  DEFINES = -DGLEW_STATIC
+  DEP_FILE = CMakeFiles\VoxelNoxel.dir\src\voxels\WaterSimulator.cpp.obj.d
   FLAGS = -O3 -DNDEBUG -std=gnu++17
   INCLUDES = -IC:/MyGame/VoxelNoxel/src
   OBJECT_DIR = CMakeFiles\VoxelNoxel.dir
@@ -642,7 +696,7 @@ build CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj: CXX_COMPILER__VoxelNo
 #############################################
 # Link the executable bin\VoxelNoxel.exe
 
-build bin/VoxelNoxel.exe: CXX_EXECUTABLE_LINKER__VoxelNoxel_Release CMakeFiles/VoxelNoxel.dir/src/coders/commons.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/json.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/png.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/toml.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Engine.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Renderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/WorldManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/files/files.cpp.obj CMakeFiles/VoxelNoxel.dir/src/frontend/Menu.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Batch2D.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Font.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/ImageData.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MeshFile.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MeshPool.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Sprite.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/lighting/Lighting.cpp.obj CMakeFiles/VoxelNoxel.dir/src/lighting/LightingSystem.cpp.obj CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj CMakeFiles/VoxelNoxel.dir/src/main.cpp.obj CMakeFiles/VoxelNoxel.dir/src/maths/LMPacker.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex2.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex2S.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/PerlinNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/SimplexNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_FractalNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_Perlin.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_SmoothRandom.cpp.obj CMakeFiles/VoxelNoxel.dir/src/settings/SettingsIO.cpp.obj CMakeFiles/VoxelNoxel.dir/src/utils/Rand.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/BiomeDefinition.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/BiomeProviderFromImage.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/ChunkManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoChunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoObject.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoOccupiedMap.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/GameUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/HeightMapUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/LODMesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/MCChunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/MeshGeneratorOptimizations.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Path.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/PathingUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/PrefabManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/StampManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/TerrainMapGenerator.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/VoxelCubeSurface.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/VoxelUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingPlane.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterData.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldBuilder.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldDataLoader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldSave.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/voxel.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj | C$:/msys64/mingw64/lib/libglew32.dll.a C$:/msys64/mingw64/lib/libpng.dll.a C$:/msys64/mingw64/lib/libz.dll.a
+build bin/VoxelNoxel.exe: CXX_EXECUTABLE_LINKER__VoxelNoxel_Release CMakeFiles/VoxelNoxel.dir/src/coders/commons.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/json.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/png.cpp.obj CMakeFiles/VoxelNoxel.dir/src/coders/toml.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Engine.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Game.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/Renderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/engine/WorldManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/files/files.cpp.obj CMakeFiles/VoxelNoxel.dir/src/frontend/Menu.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Batch2D.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Font.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/ImageData.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MarchingCubes.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Mesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MeshFile.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/MeshPool.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Shader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Sprite.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/Texture.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/VoxelRenderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/graphics/WaterRenderer.cpp.obj CMakeFiles/VoxelNoxel.dir/src/lighting/Lighting.cpp.obj CMakeFiles/VoxelNoxel.dir/src/lighting/LightingSystem.cpp.obj CMakeFiles/VoxelNoxel.dir/src/loaders/png_loading.cpp.obj CMakeFiles/VoxelNoxel.dir/src/main.cpp.obj CMakeFiles/VoxelNoxel.dir/src/maths/LMPacker.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex2.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/OpenSimplex2S.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/PerlinNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/SimplexNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_FractalNoise.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_Perlin.cpp.obj CMakeFiles/VoxelNoxel.dir/src/noise/vp_SmoothRandom.cpp.obj CMakeFiles/VoxelNoxel.dir/src/settings/SettingsIO.cpp.obj CMakeFiles/VoxelNoxel.dir/src/utils/Rand.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/BiomeDefinition.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/BiomeProviderFromImage.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Chunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/ChunkManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoChunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoObject.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/DecoOccupiedMap.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/GameUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/HeightMapUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/LODMesh.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/MCChunk.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/MeshGeneratorOptimizations.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/Path.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/PathingUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/PrefabManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/StampManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/TerrainMapGenerator.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/VoxelCubeSurface.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/VoxelUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingPlane.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingUtils.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterClippingVolume.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterData.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterEvaporationManager.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterNeighborCache.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WaterSimulator.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldBuilder.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldDataLoader.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/WorldSave.cpp.obj CMakeFiles/VoxelNoxel.dir/src/voxels/voxel.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Camera.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Events.cpp.obj CMakeFiles/VoxelNoxel.dir/src/window/Window.cpp.obj | C$:/msys64/mingw64/lib/libglew32.dll.a C$:/msys64/mingw64/lib/libpng.dll.a C$:/msys64/mingw64/lib/libz.dll.a
   CONFIG = Release
   FLAGS = -O3 -DNDEBUG
   LINK_LIBRARIES = C:/msys64/mingw64/lib/libglew32.dll.a  -lglfw3  -lopengl32  C:/msys64/mingw64/lib/libpng.dll.a  C:/msys64/mingw64/lib/libz.dll.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32

@@ -25,6 +25,9 @@
 #include "graphics/Font.h"
 #include "maths/FrustumCulling.h"
 #include "graphics/VoxelRenderer.h"
+#include "graphics/WaterRenderer.h"
+#include "voxels/WaterData.h"
+#include "voxels/WaterUtils.h"
 #include "lighting/LightingSystem.h"
 
 using namespace glm;
@@ -122,7 +125,7 @@ void Game::update(float delta) {
     }
     
     // Обновляем мир
-    updateWorld();
+    updateWorld(delta);
 }
 
 void Game::handleMenuActions() {
@@ -413,7 +416,7 @@ void Game::handleInput(float delta) {
     }
 }
 
-void Game::updateWorld() {
+void Game::updateWorld(float delta) {
     ChunkManager* chunkManager = engine->getChunkManager();
     Camera* camera = engine->getCamera();
     VoxelRenderer* voxelRenderer = engine->getVoxelRenderer();
@@ -421,6 +424,9 @@ void Game::updateWorld() {
     
     // Обновляем чанки вокруг камеры
     chunkManager->update(camera->position, engine->renderDistance);
+    
+    // Обновляем симуляцию воды
+    chunkManager->updateWaterSimulation(delta);
     
     // Обновляем освещение вокруг камеры
     if (lightingSystem != nullptr) {
@@ -741,5 +747,84 @@ void Game::renderWorld() {
     
     // Отключаем polygon offset после отрисовки блоков
     glDisable(GL_POLYGON_OFFSET_FILL);
+    
+    // Рендерим воду (прозрачная, после блоков)
+    // Включаем blend для прозрачности воды
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE); // Отключаем запись в depth buffer для прозрачности
+    
+    // Используем шейдер для воды
+    Shader* waterShader = engine->getWaterShader();
+    WaterRenderer* waterRenderer = engine->getWaterRenderer();
+    if (waterRenderer != nullptr && waterShader != nullptr) {
+        waterShader->use();
+        waterShader->uniformMatrix("projview", projview);
+        waterShader->uniformMatrix("u_view", camera->getView());
+        waterShader->uniform3f("u_skyLightColor", 1.0f, 1.0f, 1.0f);
+        
+        // Передаем направленный свет от солнца
+        waterShader->uniform3f("u_lightDir", lightDir.x, lightDir.y, lightDir.z);
+        waterShader->uniform3f("u_sunColor", 1.0f, 1.0f, 1.0f);
+        
+        // Передаем точечные источники света
+        waterShader->uniform1i("u_lightCount", nLights);
+        for (int i = 0; i < nLights; i++) {
+            std::string posName = "u_lights[" + std::to_string(i) + "].pos";
+            std::string colorName = "u_lights[" + std::to_string(i) + "].color";
+            std::string radiusName = "u_lights[" + std::to_string(i) + "].radius";
+            waterShader->uniform3f(posName, frameLights[i].pos.x, frameLights[i].pos.y, frameLights[i].pos.z);
+            waterShader->uniform3f(colorName, frameLights[i].color.x, frameLights[i].color.y, frameLights[i].color.z);
+            waterShader->uniform1f(radiusName, frameLights[i].radius);
+        }
+        
+        // Убеждаемся, что текстура правильно привязана
+        glActiveTexture(GL_TEXTURE0);
+        texture->bind();
+        waterShader->uniform1i("u_texture0", 0);
+        
+        for (MCChunk* chunk : visibleChunks) {
+            if (chunk->waterMeshModified) {
+                // Удаляем старый меш воды, если он есть
+                if (chunk->waterMesh != nullptr) {
+                    delete chunk->waterMesh;
+                    chunk->waterMesh = nullptr;
+                }
+                
+                // Перестраиваем меш воды
+                if (chunk->waterData && chunk->waterData->hasActiveWater()) {
+                    chunk->waterMesh = waterRenderer->render(chunk);
+                }
+                
+                chunk->waterMeshModified = false;
+            }
+            
+            if (chunk->waterMesh != nullptr) {
+                // Frustum culling для воды
+                vec3 chunkMin = chunk->worldPos - vec3(
+                    MCChunk::CHUNK_SIZE_X / 2.0f,
+                    MCChunk::CHUNK_SIZE_Y / 2.0f,
+                    MCChunk::CHUNK_SIZE_Z / 2.0f
+                );
+                vec3 chunkMax = chunk->worldPos + vec3(
+                    MCChunk::CHUNK_SIZE_X / 2.0f,
+                    MCChunk::CHUNK_SIZE_Y / 2.0f,
+                    MCChunk::CHUNK_SIZE_Z / 2.0f
+                );
+                
+                if (!frustum->IsBoxVisible(chunkMin, chunkMax)) {
+                    continue; // Пропускаем чанк вне frustum
+                }
+                
+                mat4 chunkModel(1.0f);
+                waterShader->uniformMatrix("model", chunkModel);
+                chunk->waterMesh->draw(GL_TRIANGLES);
+            }
+        }
+    }
+    
+    // Восстанавливаем состояние
+    glDepthMask(GL_TRUE); // Включаем запись в depth buffer обратно
+    glDisable(GL_BLEND);
 }
 

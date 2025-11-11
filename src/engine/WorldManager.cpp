@@ -6,6 +6,8 @@
 #include "voxels/DecoManager.h"
 #include "voxels/WorldSave.h"
 #include "voxels/WorldBuilder.h"
+#include "voxels/WaterSimulator.h"
+#include "voxels/WaterEvaporationManager.h"
 #include "frontend/Menu.h"
 #include "files/files.h"
 #include "window/Camera.h"
@@ -39,6 +41,12 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
     chunkManager->setSeed(seed);
 	chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 	
+	// Устанавливаем уровень воды относительно базовой высоты (вода в низинах)
+	// Используем примерно 60-70% от baseHeight, чтобы вода была в низинах, но не слишком низко
+	float waterLevel = baseHeight * 0.65f;
+	chunkManager->setWaterLevel(waterLevel);
+	std::cout << "[WORLD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
+	
 	// Устанавливаем WorldSave и путь к миру для автосохранения чанков
 	chunkManager->setWorldSave(worldSave, worldPath);
 	
@@ -53,6 +61,17 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
 	// Создаём и инициализируем WorldBuilder для генерации дорог, озер и префабов
 	worldBuilder = new WorldBuilder(chunkManager);
 	worldBuilder->Initialize(worldWidth, seed);
+	
+	// Передаем WorldBuilder в ChunkManager для применения модификаций при генерации чанков
+	chunkManager->setWorldBuilder(worldBuilder);
+	
+	// Создаём и инициализируем симулятор воды
+	WaterSimulator* waterSimulator = new WaterSimulator(chunkManager);
+	chunkManager->setWaterSimulator(waterSimulator);
+	
+	// Создаём и инициализируем менеджер испарения воды
+	WaterEvaporationManager* waterEvaporationManager = new WaterEvaporationManager(chunkManager);
+	chunkManager->setWaterEvaporationManager(waterEvaporationManager);
 	
 	// Генерируем элементы мира
 	std::cout << "[WORLDBUILDER] Starting world generation..." << std::endl;
@@ -114,6 +133,17 @@ bool WorldManager::loadWorld(const std::string& worldPath,
 	}
 	worldBuilder = new WorldBuilder(chunkManager);
 	worldBuilder->Initialize(worldWidth, seed);
+	// Передаем WorldBuilder в ChunkManager для применения модификаций при генерации чанков
+	chunkManager->setWorldBuilder(worldBuilder);
+	
+	// Создаём и инициализируем симулятор воды
+	WaterSimulator* waterSimulator = new WaterSimulator(chunkManager);
+	chunkManager->setWaterSimulator(waterSimulator);
+	
+	// Создаём и инициализируем менеджер испарения воды
+	WaterEvaporationManager* waterEvaporationManager = new WaterEvaporationManager(chunkManager);
+	chunkManager->setWaterEvaporationManager(waterEvaporationManager);
+	
 	// При загрузке не генерируем заново, только инициализируем системы
 	
 	if (worldSave->load(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
@@ -123,6 +153,12 @@ bool WorldManager::loadWorld(const std::string& worldPath,
                   << ", baseHeight=" << baseHeight << ", heightVariation=" << heightVariation << std::endl;
         chunkManager->setSeed(seed);
         chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+        
+        // Устанавливаем уровень воды относительно базовой высоты
+        float waterLevel = baseHeight * 0.65f;
+        chunkManager->setWaterLevel(waterLevel);
+        std::cout << "[LOAD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
+        
         worldLoaded = true;
         currentWorldName = worldName;
         currentSeed = seed;
@@ -131,6 +167,12 @@ bool WorldManager::loadWorld(const std::string& worldPath,
     } else {
         std::cout << "[LOAD] Failed to load world from " << worldPath << ", creating new world" << std::endl;
         chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+        
+        // Устанавливаем уровень воды относительно базовой высоты
+        float waterLevel = baseHeight * 0.65f;
+        chunkManager->setWaterLevel(waterLevel);
+        std::cout << "[LOAD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
+        
         worldLoaded = true;
         menu->setSaveFileExists(false);
         return false;
@@ -176,6 +218,20 @@ void WorldManager::unloadWorld() {
             worldBuilder->Clear();
             delete worldBuilder;
             worldBuilder = nullptr;
+        }
+        
+        // Очищаем симулятор воды
+        WaterSimulator* waterSimulator = chunkManager->getWaterSimulator();
+        if (waterSimulator != nullptr) {
+            delete waterSimulator;
+            chunkManager->setWaterSimulator(nullptr);
+        }
+        
+        // Очищаем менеджер испарения воды
+        WaterEvaporationManager* waterEvaporationManager = chunkManager->getWaterEvaporationManager();
+        if (waterEvaporationManager != nullptr) {
+            delete waterEvaporationManager;
+            chunkManager->setWaterEvaporationManager(nullptr);
         }
         
         std::cout << "[GAME] World uninitialized, ready for new world" << std::endl;

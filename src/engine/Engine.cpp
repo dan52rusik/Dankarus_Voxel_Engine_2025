@@ -14,6 +14,7 @@
 #include "graphics/Font.h"
 #include "graphics/Batch2D.h"
 #include "graphics/VoxelRenderer.h"
+#include "graphics/WaterRenderer.h"
 #include "voxels/ChunkManager.h"
 #include "voxels/WorldSave.h"
 #include "frontend/Menu.h"
@@ -64,6 +65,7 @@ bool Engine::initialize() {
     worldSave = new WorldSave();
     frustum = new Frustum();
     voxelRenderer = new VoxelRenderer(1024 * 1024 * 8);
+    waterRenderer = new WaterRenderer(1024 * 1024 * 4); // Меньший буфер для воды
     worldManager = new WorldManager(chunkManager, worldSave, menu);
     lightingSystem = new lighting::LightingSystem();
     lightingSystem->initialize(chunkManager);
@@ -95,6 +97,12 @@ bool Engine::loadResources() {
     voxelShader = load_shader("res/shaders/voxel_vert.glsl", "res/shaders/voxel_frag.glsl");
     if (voxelShader == nullptr) {
         std::cerr << "failed to load voxel shader" << std::endl;
+        return false;
+    }
+    
+    waterShader = load_shader("res/shaders/water_vert.glsl", "res/shaders/water_frag.glsl");
+    if (waterShader == nullptr) {
+        std::cerr << "failed to load water shader" << std::endl;
         return false;
     }
     
@@ -191,6 +199,7 @@ void Engine::shutdown() {
     if (worldSave) delete worldSave;
     if (frustum) delete frustum;
     if (voxelRenderer) delete voxelRenderer;
+    if (waterRenderer) delete waterRenderer;
     
     Events::finalize();
     Window::terminate();
@@ -220,6 +229,7 @@ void Engine::applySettings() {
 void Engine::cleanupResources() {
     if (shader) delete shader;
     if (voxelShader) delete voxelShader;
+    if (waterShader) delete waterShader;
     if (uiShader) delete uiShader;
     if (linesShader) delete linesShader;
     if (texture) delete texture;

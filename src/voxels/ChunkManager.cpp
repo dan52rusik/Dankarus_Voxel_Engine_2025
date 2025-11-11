@@ -6,6 +6,10 @@
 #include "BiomeProviderFromImage.h"
 #include "DecoObject.h"
 #include "DecoManager.h"
+#include "WorldBuilder.h"
+#include "WaterSimulator.h"
+#include "WaterEvaporationManager.h"
+#include "WaterUtils.h"
 #include "../maths/voxmaths.h"
 #include "../graphics/MarchingCubes.h"
 #include "../files/files.h"
@@ -26,16 +30,17 @@ const char PATH_SEP = '/';
 #endif
 
 ChunkManager::ChunkManager() 
-	: noise(1337), baseFreq(0.08f), octaves(5), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(50.0f), heightVariation(60.0f), waterLevel(20.0f), heightMap(nullptr),
+	: noise(1337), baseFreq(0.06f), octaves(6), lacunarity(2.0f), gain(0.5f), 
+	  baseHeight(50.0f), heightVariation(70.0f), waterLevel(8.0f), heightMap(nullptr),
 	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
-	// Параметры настроены для улучшенной генерации террейна:
-	// - baseFreq = 0.08f (было 0.03f) - более частый рельеф, заметный внутри чанка 32x32
-	// - baseHeight = 50.0f (средняя «высота материка») - увеличено для более высокого рельефа
-	// - heightVariation = 60.0f (размах рельефа, заметные холмы и долины) - увеличено для большей вариативности
-	// - waterLevel = 20.0f (чуть выше низин, но далеко не везде) - поднят вместе с рельефом
-	// - octaves = 5 (больше деталей)
-	// Теперь террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
+	// Параметры настроены для красивого и разнообразного ландшафта:
+	// - baseFreq = 0.06f - оптимальная частота для заметного рельефа внутри чанка
+	// - octaves = 6 - больше деталей для более интересного рельефа
+	// - baseHeight = 50.0f - средняя высота материка
+	// - heightVariation = 70.0f - большой размах для заметных холмов, долин и гор
+	// - waterLevel = 8.0f - уровень воды в низинах (будет переустановлен при создании мира)
+	// Террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
+	// Биомы определяются по температуре и влажности для более реалистичного распределения
 }
 
 ChunkManager::~ChunkManager() {
@@ -285,6 +290,9 @@ bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
 		return this->getWaterLevelAt(x, z);
 	});
 	
+	// Помечаем меш воды для пересборки после генерации
+	chunk->waterMeshModified = true;
+	
 	chunk->generated = true;
 	chunk->dirty = false; // Загруженный чанк не грязный
 	chunk->voxelMeshModified = true; // Гарантируем пересборку меша блоков
@@ -359,6 +367,9 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		return this->getWaterLevelAt(x, z);
 	});
 	
+	// Помечаем меш воды для пересборки после генерации
+	chunk->waterMeshModified = true;
+	
 	// Добавляем декорации из DecoManager
 	if (decoManager != nullptr) {
 		std::vector<DecoObject> decos;
@@ -377,6 +388,19 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 				chunk->setVoxel(lx, ly, lz, deco.blockId);
 			}
 		}
+	}
+	
+	// Применяем модификации из WorldBuilder (дороги, озера, префабы)
+	if (worldBuilder != nullptr) {
+		const auto& roadMap = worldBuilder->GetRoadMap();
+		const auto& waterMap = worldBuilder->GetWaterMap();
+		int worldSize = worldBuilder->GetWorldSize();
+		
+		// Получаем PrefabManager из WorldBuilder (нужно добавить геттер)
+		// Пока что передаем nullptr, так как PrefabManager приватный
+		PrefabSystem::PrefabManager* prefabManager = nullptr;
+		
+		chunk->applyWorldBuilderModifications(roadMap, waterMap, worldSize, prefabManager);
 	}
 	
 	chunks[key] = chunk;
@@ -458,6 +482,23 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
 	unloadDistantChunks(cameraPos, renderDistance);
 }
 
+void ChunkManager::updateWaterSimulation(float deltaTime) {
+	if (waterSimulator != nullptr) {
+		waterSimulator->Update(deltaTime);
+	}
+	if (waterEvaporationManager != nullptr) {
+		waterEvaporationManager->Update(deltaTime);
+	}
+}
+
+MCChunk* ChunkManager::getChunk(const std::string& chunkKey) const {
+	auto it = chunks.find(chunkKey);
+	if (it != chunks.end()) {
+		return it->second;
+	}
+	return nullptr;
+}
+
 std::vector<MCChunk*> ChunkManager::getVisibleChunks() const {
 	std::vector<MCChunk*> visible;
 	for (const auto& pair : chunks) {
@@ -511,46 +552,46 @@ float ChunkManager::evalSurfaceHeight(float wx, float wz) const {
 	// 1) Domain warping — «кривим» входные координаты, чтобы исчезла регулярность FBM
 	float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
 	float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
-	float warpAmp = 35.0f; // насколько «гнём» координаты (в мировых юнитах)
+	float warpAmp = 40.0f; // Увеличено для более интересных изгибов рельефа
 	float wxw = wx + w1 * warpAmp;
 	float wzw = wz + w2 * warpAmp;
 	
 	// 2) Континентальность (очень низкая частота) — задаёт большие области суши/впадин
 	float continents = 0.5f * noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f) + 0.5f;
 	// «поднимаем» материки и немного притапливаем впадины
-	float continentBias = glm::mix(-0.6f, 0.6f, continents);  // [-0.6..0.6]
+	float continentBias = glm::mix(-0.7f, 0.7f, continents);  // Увеличено для более выраженных континентов
 	
 	// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
-	float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, 5, 2.0f, 0.5f); // -1..1
+	float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, octaves, lacunarity, gain); // -1..1
 	
 	// 4) Средне-высокочастотная полоса (для дополнительного разнообразия)
-	float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.4f; // -1..1
+	float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.5f; // Усилено
 	
 	// 5) Ридж-мультифрактал (острые хребты/скалы) - более заметные горы
 	auto ridge = [](float n) { n = 1.0f - std::fabs(n); return n * n; };
 	float ridgesFBM = noise.fbm(wxw * baseFreq * 0.5f, 0.0f, wzw * baseFreq * 0.5f, 4, 2.0f, 0.5f); // -1..1
 	float ridges = ridge(ridgesFBM);  // 0..1
 	// Делаем горы более заметными
-	ridges = std::max(0.0f, ridges - 0.25f) * 1.2f; // Усиливаем только высокие значения
+	ridges = std::max(0.0f, ridges - 0.2f) * 1.5f; // Усилено для более выраженных гор
 	
 	// 6) Детальки (мелкие формы) - усиленные для заметности внутри чанка
-	float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.6f; // -1..1
+	float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.7f; // Усилено
 	
 	// 7) Склеиваем: материки -> холмы -> средние -> хребты -> детали.
 	//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
 	float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
 	float combined =
-		hills * 0.65f
+		hills * 0.6f
 		+ midNoise                                    // Средне-высокочастотная полоса
-		+ (ridges * 2.0f - 1.0f) * (0.9f * ridgeWeight)   // Горы с большим весом
+		+ (ridges * 2.0f - 1.0f) * (1.0f * ridgeWeight)   // Горы с большим весом
 		+ details                                     // Усиленные детали
 		+ continentBias;                              // большой макро-тренд
 	
 	// 8) Курация амплитуды и опциональные «террасы»
-	combined = glm::clamp(combined, -1.2f, 1.2f);
+	combined = glm::clamp(combined, -1.3f, 1.3f); // Расширен диапазон
 	float remapped = 0.5f * combined + 0.5f; // remap01
-	float t = std::floor(remapped * 7.0f) / 7.0f;
-	float shaped = glm::mix(remapped, t, 0.25f);
+	float t = std::floor(remapped * 8.0f) / 8.0f; // Больше террас
+	float shaped = glm::mix(remapped, t, 0.2f); // Меньше террас для более плавного рельефа
 	shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
 	
 	// 9) Высота поверхности
@@ -628,14 +669,14 @@ float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
 		return riverHeight;
 	}
 	
-	// Вода только в очень низких областях (значительно ниже базового уровня воды)
-	// Это предотвращает глобальное затопление
-	if (surfaceHeight < waterLevel - 3.0f) {
-		return waterLevel; // Заполняем водой только глубокие низины
+	// Если поверхность ниже базового уровня воды, заполняем водой
+	// Это основное условие для генерации воды
+	if (surfaceHeight < waterLevel) {
+		return waterLevel; // Базовый уровень воды
 	}
 	
-	// Суша - нет воды (большинство мест)
-	return -1000.0f; // Очень низкое значение означает отсутствие воды
+	// Нет воды (суша)
+	return -1000.0f; // Специальное значение, означающее отсутствие воды
 }
 
 // ==================== Работа с высотными картами ====================
@@ -769,8 +810,39 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 		return;
 	}
 	
+	// Специальная обработка для воды (ID = 10)
+	if (id == 10) {
+		// Размещаем воду в системе WaterData вместо обычного блока
+		if (chunk->waterData) {
+			int waterIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(lx, ly, lz);
+			chunk->waterData->setVoxelMass(waterIndex, WaterUtils::WATER_MASS_MAX);
+			chunk->waterData->setVoxelActive(waterIndex);
+			chunk->waterMeshModified = true;
+			chunk->dirty = true;
+			std::cout << "[WATER] Placed water at (" << x << ", " << y << ", " << z << ") "
+			          << "mass=" << WaterUtils::WATER_MASS_MAX << " active=" 
+			          << (chunk->waterData->isVoxelActive(waterIndex) ? "true" : "false") << std::endl;
+		} else {
+			std::cout << "[WATER] ERROR: waterData is nullptr for chunk at (" 
+			          << chunk->chunkPos.x << ", " << chunk->chunkPos.y << ", " << chunk->chunkPos.z << ")" << std::endl;
+		}
+		// Не устанавливаем обычный блок для воды
+		return;
+	}
+	
 	// Устанавливаем блок
 	chunk->setVoxel(lx, ly, lz, id);
+	
+	// Если удаляем блок (id=0), также удаляем воду, если она была
+	if (id == 0 && chunk->waterData) {
+		int waterIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(lx, ly, lz);
+		if (chunk->waterData->getVoxelMass(waterIndex) > 0) {
+			chunk->waterData->setVoxelMass(waterIndex, 0);
+			chunk->waterData->setVoxelInactive(waterIndex);
+			chunk->waterMeshModified = true;
+			chunk->dirty = true;
+		}
+	}
 	
 	// Проверяем, что блок установился
 	voxel* checkVox = chunk->getVoxel(lx, ly, lz);

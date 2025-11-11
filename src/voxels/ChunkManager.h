@@ -61,6 +61,24 @@ public:
 	class DecoManager* getDecoManager() const { return decoManager; }
 	void setDecoManager(class DecoManager* deco) { decoManager = deco; }
 	
+	// Получить WorldBuilder (для интеграции)
+	class WorldBuilder* getWorldBuilder() const { return worldBuilder; }
+	void setWorldBuilder(class WorldBuilder* builder) { worldBuilder = builder; }
+	
+	// Получить симулятор воды
+	class WaterSimulator* getWaterSimulator() const { return waterSimulator; }
+	void setWaterSimulator(class WaterSimulator* simulator) { waterSimulator = simulator; }
+	
+	// Получить менеджер испарения воды
+	class WaterEvaporationManager* getWaterEvaporationManager() const { return waterEvaporationManager; }
+	void setWaterEvaporationManager(class WaterEvaporationManager* manager) { waterEvaporationManager = manager; }
+	
+	// Обновить симуляцию воды (вызывается из игрового цикла)
+	void updateWaterSimulation(float deltaTime);
+	
+	// Получить чанк по ключу (для внутреннего использования)
+	MCChunk* getChunk(const std::string& chunkKey) const;
+	
 	// Работа с высотными картами
 	void setHeightMap(const std::string& filepath); // Загрузить высотную карту из файла (PNG/RAW)
 	void setHeightMap(HeightMapUtils::HeightData2D* heightMap); // Установить высотную карту напрямую
@@ -106,6 +124,15 @@ private:
 	
 	// Менеджер декораций
 	class DecoManager* decoManager = nullptr;
+	
+	// WorldBuilder для применения дорог/озер/префабов
+	class WorldBuilder* worldBuilder = nullptr;
+	
+	// Симулятор воды
+	class WaterSimulator* waterSimulator = nullptr;
+	
+	// Менеджер испарения воды
+	class WaterEvaporationManager* waterEvaporationManager = nullptr;
 	
 	// Провайдер биомов из изображения (опционально)
 	class BiomeProviderFromImage* biomeProviderFromImage = nullptr;

@@ -15,6 +15,7 @@ class ChunkManager;
 class Camera;
 class WorldSave;
 class VoxelRenderer;
+class WaterRenderer;
 class Frustum;
 class WorldManager;
 
@@ -36,12 +37,14 @@ public:
     // Геттеры для доступа к системам
     Shader* getShader() const { return shader; }
     Shader* getVoxelShader() const { return voxelShader; }
+    Shader* getWaterShader() const { return waterShader; }
     Shader* getUIShader() const { return uiShader; }
     Shader* getLinesShader() const { return linesShader; }
     Texture* getTexture() const { return texture; }
     Font* getFont() const { return font; }
     Batch2D* getBatch() const { return batch; }
     VoxelRenderer* getVoxelRenderer() const { return voxelRenderer; }
+    WaterRenderer* getWaterRenderer() const { return waterRenderer; }
     Menu* getMenu() const { return menu; }
     ChunkManager* getChunkManager() const { return chunkManager; }
     Camera* getCamera() const { return camera; }
@@ -84,7 +87,7 @@ public:
     
     // Hotbar (9 слотов)
     static const int HOTBAR_SIZE = 9;
-    int hotbarSlots[HOTBAR_SIZE] = {1, 2, 3, 4, 0, 0, 0, 0, 0}; // Инициализируем первые 4 слота
+    int hotbarSlots[HOTBAR_SIZE] = {1, 2, 3, 4, 10, 0, 0, 0, 0}; // Инициализируем первые 4 слота + вода в 5-м слоте (ID=10)
     int selectedHotbarSlot = 0; // Текущий выбранный слот (0-8)
     
     // Выбранный блок (получается из hotbar)
@@ -97,12 +100,14 @@ private:
     // Ресурсы
     Shader* shader = nullptr;
     Shader* voxelShader = nullptr;
+    Shader* waterShader = nullptr;
     Shader* uiShader = nullptr;
     Shader* linesShader = nullptr;
     Texture* texture = nullptr;
     Font* font = nullptr;
     Batch2D* batch = nullptr;
     VoxelRenderer* voxelRenderer = nullptr;
+    WaterRenderer* waterRenderer = nullptr;
     
     // Системы
     Menu* menu = nullptr;
