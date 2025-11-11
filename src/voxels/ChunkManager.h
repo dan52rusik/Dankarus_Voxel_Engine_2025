@@ -5,6 +5,7 @@
 #include "voxel.h"
 #include "noise/OpenSimplex.h"
 #include "HeightMapUtils.h"
+#include "BiomeDefinition.h"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <string>
@@ -16,6 +17,7 @@
 namespace HitInfo {
 	struct HitInfoDetails;
 }
+class BiomeProviderFromImage;
 
 class ChunkManager {
 public:
@@ -41,6 +43,23 @@ public:
 	// Получить уровень воды в точке (x, z) с учетом типа водоема
 	// Возвращает уровень воды: море > озеро > река > суша
 	float getWaterLevelAt(int worldX, int worldZ) const;
+	
+	// Вычислить высоту поверхности в точке (wx, wz) используя ту же формулу, что и в генерации террейна
+	// Используется для согласования воды с рельефом
+	float evalSurfaceHeight(float wx, float wz) const;
+	
+	// Получить биом в точке (wx, wz)
+	BiomeDefinition::BiomeType getBiomeAt(float wx, float wz) const;
+	
+	// Установить провайдер биомов из изображения
+	void setBiomeProviderFromImage(BiomeProviderFromImage* provider);
+	
+	// Получить провайдер биомов из изображения
+	BiomeProviderFromImage* getBiomeProviderFromImage() const { return biomeProviderFromImage; }
+	
+	// Получить менеджер декораций (для интеграции)
+	class DecoManager* getDecoManager() const { return decoManager; }
+	void setDecoManager(class DecoManager* deco) { decoManager = deco; }
 	
 	// Работа с высотными картами
 	void setHeightMap(const std::string& filepath); // Загрузить высотную карту из файла (PNG/RAW)
@@ -84,6 +103,12 @@ private:
 	// Сохранение/загрузка
 	class WorldSave* worldSave = nullptr; // Указатель на WorldSave для сохранения чанков
 	std::string worldPath; // Путь к миру для сохранения чанков
+	
+	// Менеджер декораций
+	class DecoManager* decoManager = nullptr;
+	
+	// Провайдер биомов из изображения (опционально)
+	class BiomeProviderFromImage* biomeProviderFromImage = nullptr;
 	
 	// Вспомогательные функции
 	std::string chunkKey(int cx, int cy, int cz) const;

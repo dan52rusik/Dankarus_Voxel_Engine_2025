@@ -7,6 +7,7 @@ class ChunkManager;
 class WorldSave;
 class Menu;
 class Camera;
+class WorldBuilder;
 
 class WorldManager {
 public:
@@ -33,9 +34,11 @@ public:
     int64_t getCurrentSeed() const { return currentSeed; }
     
 private:
-    ChunkManager* chunkManager;
+	ChunkManager* chunkManager;
+	class DecoManager* decoManager;
     WorldSave* worldSave;
     Menu* menu;
+    WorldBuilder* worldBuilder;
     
     bool worldLoaded = false;
     std::string currentWorldPath = "";

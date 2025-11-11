@@ -3,13 +3,15 @@
 #include <iostream>
 #include <string>
 #include "voxels/ChunkManager.h"
+#include "voxels/DecoManager.h"
 #include "voxels/WorldSave.h"
+#include "voxels/WorldBuilder.h"
 #include "frontend/Menu.h"
 #include "files/files.h"
 #include "window/Camera.h"
 
 WorldManager::WorldManager(ChunkManager* chunkManager, WorldSave* worldSave, Menu* menu)
-    : chunkManager(chunkManager), worldSave(worldSave), menu(menu) {
+    : chunkManager(chunkManager), worldSave(worldSave), menu(menu), decoManager(nullptr), worldBuilder(nullptr) {
 }
 
 bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
@@ -35,12 +37,31 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
     // Очищаем старый мир, если был
     chunkManager->clear();
     chunkManager->setSeed(seed);
-    chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
-    
-    // Устанавливаем WorldSave и путь к миру для автосохранения чанков
-    chunkManager->setWorldSave(worldSave, worldPath);
-    
-    worldLoaded = true;
+	chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	
+	// Устанавливаем WorldSave и путь к миру для автосохранения чанков
+	chunkManager->setWorldSave(worldSave, worldPath);
+	
+	// Создаём и инициализируем менеджер декораций
+	decoManager = new DecoManager();
+	// Размеры мира для декораций (можно настроить)
+	int worldWidth = 4096;  // Размер мира по X
+	int worldHeight = 4096; // Размер мира по Z
+	decoManager->onWorldLoaded(worldWidth, worldHeight, chunkManager, worldPath, seed);
+	chunkManager->setDecoManager(decoManager);
+	
+	// Создаём и инициализируем WorldBuilder для генерации дорог, озер и префабов
+	worldBuilder = new WorldBuilder(chunkManager);
+	worldBuilder->Initialize(worldWidth, seed);
+	
+	// Генерируем элементы мира
+	std::cout << "[WORLDBUILDER] Starting world generation..." << std::endl;
+	worldBuilder->GenerateRoads(5, 20);  // 5 шоссе, 20 проселочных дорог
+	worldBuilder->GenerateWaterFeatures(10, 5);  // 10 озер, 5 рек
+	worldBuilder->GeneratePrefabs(50);  // 50 префабов
+	std::cout << "[WORLDBUILDER] World generation completed!" << std::endl;
+	
+	worldLoaded = true;
     
     // Сохраняем мир сразу после создания, чтобы он появился в списке
     // camera передадим как nullptr, т.к. при создании мира камера еще не инициализирована
@@ -70,12 +91,32 @@ bool WorldManager::loadWorld(const std::string& worldPath,
     std::cout << "[LOAD] Attempting to load world from: " << worldPath << std::endl;
     
     // Очищаем текущий мир перед загрузкой
-    chunkManager->clear();
-    
-    // Устанавливаем WorldSave и путь к миру для автосохранения чанков
-    chunkManager->setWorldSave(worldSave, worldPath);
-    
-    if (worldSave->load(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
+	chunkManager->clear();
+	
+	// Устанавливаем WorldSave и путь к миру для автосохранения чанков
+	chunkManager->setWorldSave(worldSave, worldPath);
+	
+	// Создаём и инициализируем менеджер декораций
+	if (decoManager != nullptr) {
+		decoManager->onWorldUnloaded();
+		delete decoManager;
+	}
+	decoManager = new DecoManager();
+	int worldWidth = 4096;  // Размер мира по X
+	int worldHeight = 4096; // Размер мира по Z
+	decoManager->onWorldLoaded(worldWidth, worldHeight, chunkManager, worldPath, seed);
+	chunkManager->setDecoManager(decoManager);
+	
+	// Создаём и инициализируем WorldBuilder (для загруженных миров тоже нужен)
+	if (worldBuilder != nullptr) {
+		worldBuilder->Clear();
+		delete worldBuilder;
+	}
+	worldBuilder = new WorldBuilder(chunkManager);
+	worldBuilder->Initialize(worldWidth, seed);
+	// При загрузке не генерируем заново, только инициализируем системы
+	
+	if (worldSave->load(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
         std::cout << "[LOAD] World loaded successfully from " << worldPath << " (name: " << worldName << ", seed: " << seed << ")" << std::endl;
         std::cout << "[LOAD] Generator params: baseFreq=" << baseFreq << ", octaves=" << octaves 
                   << ", lacunarity=" << lacunarity << ", gain=" << gain 
@@ -122,6 +163,21 @@ void WorldManager::unloadWorld() {
     if (worldLoaded && !currentWorldPath.empty()) {
         // Сохраняем все измененные чанки перед выгрузкой
         chunkManager->saveDirtyChunks();
+        
+        // Сохраняем и выгружаем менеджер декораций
+        if (decoManager != nullptr) {
+            decoManager->onWorldUnloaded();
+            delete decoManager;
+            decoManager = nullptr;
+        }
+        
+        // Очищаем WorldBuilder
+        if (worldBuilder != nullptr) {
+            worldBuilder->Clear();
+            delete worldBuilder;
+            worldBuilder = nullptr;
+        }
+        
         std::cout << "[GAME] World uninitialized, ready for new world" << std::endl;
     }
     worldLoaded = false;

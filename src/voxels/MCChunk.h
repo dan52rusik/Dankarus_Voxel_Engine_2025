@@ -32,6 +32,10 @@ public:
 	
 	void generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
 	
+	// Оптимизированная генерация с использованием callback для вычисления высоты поверхности
+	// Вычисляет высоту один раз на (x,z), а не в цикле по y - в ~32 раза быстрее
+	void generate(std::function<float(float, float)> evalSurfaceHeight);
+	
 	// Система воксельных блоков
 	voxel* voxels; // Массив вокселей для блоков
 	voxel* getVoxel(int lx, int ly, int lz); // Получить воксель по локальным координатам

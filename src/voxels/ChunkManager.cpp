@@ -2,6 +2,10 @@
 #include "HitInfo.h"
 #include "VoxelUtils.h"
 #include "WorldSave.h"
+#include "BiomeDefinition.h"
+#include "BiomeProviderFromImage.h"
+#include "DecoObject.h"
+#include "DecoManager.h"
 #include "../maths/voxmaths.h"
 #include "../graphics/MarchingCubes.h"
 #include "../files/files.h"
@@ -22,13 +26,14 @@ const char PATH_SEP = '/';
 #endif
 
 ChunkManager::ChunkManager() 
-	: noise(1337), baseFreq(0.03f), octaves(5), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(40.0f), heightVariation(48.0f), waterLevel(12.0f), heightMap(nullptr),
+	: noise(1337), baseFreq(0.08f), octaves(5), lacunarity(2.0f), gain(0.5f), 
+	  baseHeight(50.0f), heightVariation(60.0f), waterLevel(20.0f), heightMap(nullptr),
 	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
 	// Параметры настроены для улучшенной генерации террейна:
-	// - baseHeight = 40.0f (средняя «высота материка»)
-	// - heightVariation = 48.0f (размах рельефа, многоэтажно)
-	// - waterLevel = 12.0f (чуть выше низин, но далеко не везде)
+	// - baseFreq = 0.08f (было 0.03f) - более частый рельеф, заметный внутри чанка 32x32
+	// - baseHeight = 50.0f (средняя «высота материка») - увеличено для более высокого рельефа
+	// - heightVariation = 60.0f (размах рельефа, заметные холмы и долины) - увеличено для большей вариативности
+	// - waterLevel = 20.0f (чуть выше низин, но далеко не везде) - поднят вместе с рельефом
 	// - octaves = 5 (больше деталей)
 	// Теперь террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
 }
@@ -262,10 +267,13 @@ bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
 		
 		chunk->mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 	} else {
-		// Обычная процедурная генерация меша
+		// Обычная процедурная генерация меша (оптимизированная версия с callback)
 		// ВАЖНО: сбрасываем флаг generated, чтобы generate() выполнился
 		chunk->generated = false;
-		chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+		// Используем оптимизированную версию с callback для согласованности с водой
+		chunk->generate([this](float wx, float wz) {
+			return this->evalSurfaceHeight(wx, wz);
+		});
 	}
 	
 	// Генерируем воду после загрузки/генерации
@@ -336,10 +344,13 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		chunk->mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 		chunk->generated = true;
 	} else {
-		// Обычная процедурная генерация
+		// Обычная процедурная генерация (оптимизированная версия с callback)
 		// ВАЖНО: сбрасываем флаг generated, чтобы generate() выполнился
 		chunk->generated = false;
-		chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+		// Используем оптимизированную версию с callback для согласованности с водой
+		chunk->generate([this](float wx, float wz) {
+			return this->evalSurfaceHeight(wx, wz);
+		});
 	}
 	
 	// Генерируем воду после генерации террейна
@@ -347,6 +358,26 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 	chunk->generateWater([this](int x, int z) {
 		return this->getWaterLevelAt(x, z);
 	});
+	
+	// Добавляем декорации из DecoManager
+	if (decoManager != nullptr) {
+		std::vector<DecoObject> decos;
+		decoManager->getDecorationsOnChunk(cx, cz, decos);
+		
+		for (const auto& deco : decos) {
+			// Преобразуем координаты декорации в локальные координаты чанка
+			int lx = deco.pos.x - (cx * MCChunk::CHUNK_SIZE_X);
+			int ly = deco.pos.y - (cy * MCChunk::CHUNK_SIZE_Y);
+			int lz = deco.pos.z - (cz * MCChunk::CHUNK_SIZE_Z);
+			
+			// Проверяем, что декорация находится в пределах чанка
+			if (lx >= 0 && lx < MCChunk::CHUNK_SIZE_X &&
+			    ly >= 0 && ly < MCChunk::CHUNK_SIZE_Y &&
+			    lz >= 0 && lz < MCChunk::CHUNK_SIZE_Z) {
+				chunk->setVoxel(lx, ly, lz, deco.blockId);
+			}
+		}
+	}
 	
 	chunks[key] = chunk;
 }
@@ -475,52 +506,78 @@ void ChunkManager::setWaterLevel(float waterLevel) {
 	this->waterLevel = waterLevel;
 }
 
-float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
-	// Сначала вычисляем примерную высоту поверхности в этой точке
-	// Используем те же параметры, что и при генерации террейна
-	float wx = static_cast<float>(worldX);
-	float wz = static_cast<float>(worldZ);
-	
-	// Используем ту же улучшенную систему генерации, что и в MCChunk::generate
-	// 1) Domain warping
+// Вычислить высоту поверхности в точке (wx, wz) используя ту же формулу, что и в генерации террейна
+float ChunkManager::evalSurfaceHeight(float wx, float wz) const {
+	// 1) Domain warping — «кривим» входные координаты, чтобы исчезла регулярность FBM
 	float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
 	float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
-	float warpAmp = 35.0f;
+	float warpAmp = 35.0f; // насколько «гнём» координаты (в мировых юнитах)
 	float wxw = wx + w1 * warpAmp;
 	float wzw = wz + w2 * warpAmp;
 	
-	// 2) Континентальность
+	// 2) Континентальность (очень низкая частота) — задаёт большие области суши/впадин
 	float continents = 0.5f * noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f) + 0.5f;
-	float continentBias = glm::mix(-0.6f, 0.6f, continents);
+	// «поднимаем» материки и немного притапливаем впадины
+	float continentBias = glm::mix(-0.6f, 0.6f, continents);  // [-0.6..0.6]
 	
-	// 3) Базовый FBM
-	float hills = noise.fbm(wxw * 0.02f, 0.0f, wzw * 0.02f, 5, 2.0f, 0.5f);
+	// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
+	float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, 5, 2.0f, 0.5f); // -1..1
 	
-	// 4) Ридж-мультифрактал
-	float ridgesFBM = noise.fbm(wxw * 0.06f, 0.0f, wzw * 0.06f, 4, 2.0f, 0.5f);
-	float ridges = 1.0f - std::fabs(ridgesFBM);
-	ridges = ridges * ridges;
+	// 4) Средне-высокочастотная полоса (для дополнительного разнообразия)
+	float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.4f; // -1..1
 	
-	// 5) Детальки
-	float details = noise.fbm(wxw * 0.12f, 0.0f, wzw * 0.12f, 2, 2.0f, 0.5f);
+	// 5) Ридж-мультифрактал (острые хребты/скалы) - более заметные горы
+	auto ridge = [](float n) { n = 1.0f - std::fabs(n); return n * n; };
+	float ridgesFBM = noise.fbm(wxw * baseFreq * 0.5f, 0.0f, wzw * baseFreq * 0.5f, 4, 2.0f, 0.5f); // -1..1
+	float ridges = ridge(ridgesFBM);  // 0..1
+	// Делаем горы более заметными
+	ridges = std::max(0.0f, ridges - 0.25f) * 1.2f; // Усиливаем только высокие значения
 	
-	// 6) Склеиваем
-	float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents);
+	// 6) Детальки (мелкие формы) - усиленные для заметности внутри чанка
+	float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.6f; // -1..1
+	
+	// 7) Склеиваем: материки -> холмы -> средние -> хребты -> детали.
+	//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
+	float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
 	float combined =
 		hills * 0.65f
-		+ (ridges * 2.0f - 1.0f) * (0.35f * ridgeWeight)
-		+ details * 0.12f
-		+ continentBias;
+		+ midNoise                                    // Средне-высокочастотная полоса
+		+ (ridges * 2.0f - 1.0f) * (0.9f * ridgeWeight)   // Горы с большим весом
+		+ details                                     // Усиленные детали
+		+ continentBias;                              // большой макро-тренд
 	
-	// 7) Курация и террасы
+	// 8) Курация амплитуды и опциональные «террасы»
 	combined = glm::clamp(combined, -1.2f, 1.2f);
 	float remapped = 0.5f * combined + 0.5f; // remap01
 	float t = std::floor(remapped * 7.0f) / 7.0f;
 	float shaped = glm::mix(remapped, t, 0.25f);
-	shaped = shaped * 2.0f - 1.0f;
+	shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
 	
-	// 8) Высота поверхности
-	float surfaceHeight = baseHeight + shaped * heightVariation;
+	// 9) Высота поверхности
+	return baseHeight + shaped * heightVariation;
+}
+
+BiomeDefinition::BiomeType ChunkManager::getBiomeAt(float wx, float wz) const {
+	// Если есть провайдер биомов из изображения, используем его
+	if (biomeProviderFromImage != nullptr) {
+		return biomeProviderFromImage->GetBiomeAt(static_cast<int>(wx), static_cast<int>(wz));
+	}
+	
+	// Иначе используем процедурную генерацию через шум
+	// Используем const_cast для передачи noise в не-const функцию
+	// (noise не изменяется в GetBiomeAt, но сигнатура требует не-const ссылку)
+	return BiomeDefinition::GetBiomeAt(wx, wz, const_cast<OpenSimplex3D&>(noise));
+}
+
+void ChunkManager::setBiomeProviderFromImage(BiomeProviderFromImage* provider) {
+	biomeProviderFromImage = provider;
+}
+
+float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
+	// Используем ту же функцию вычисления высоты, что и в генерации террейна
+	float wx = static_cast<float>(worldX);
+	float wz = static_cast<float>(worldZ);
+	float surfaceHeight = evalSurfaceHeight(wx, wz);
 	
 	// Отладочный вывод для первых нескольких точек
 	static int debugWaterLevelCount = 0;

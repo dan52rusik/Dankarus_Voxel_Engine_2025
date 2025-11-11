@@ -92,6 +92,11 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 	// 	return;
 	// }
 	
+	// Очищаем воду при регенерации (опционально)
+	if (waterData != nullptr && generated) {
+		waterData->clear();
+	}
+	
 	const int NX = CHUNK_SIZE_X;
 	const int NY = CHUNK_SIZE_Y;
 	const int NZ = CHUNK_SIZE_Z;
@@ -129,33 +134,40 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 				float continentBias = glm::mix(-0.6f, 0.6f, continents);  // [-0.6..0.6]
 				
 				// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
-				float hills = noise.fbm(wxw * 0.02f, 0.0f, wzw * 0.02f, 5, 2.0f, 0.5f); // -1..1
+				// Используем baseFreq для масштабирования частот
+				float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, 5, 2.0f, 0.5f); // -1..1
 				
-				// 4) Ридж-мультифрактал (острые хребты/скалы)
-				float ridgesFBM = noise.fbm(wxw * 0.06f, 0.0f, wzw * 0.06f, 4, 2.0f, 0.5f); // -1..1
+				// 4) Средне-высокочастотная полоса (для дополнительного разнообразия)
+				float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.4f; // -1..1
+				
+				// 5) Ридж-мультифрактал (острые хребты/скалы) - более заметные горы
+				float ridgesFBM = noise.fbm(wxw * baseFreq * 0.5f, 0.0f, wzw * baseFreq * 0.5f, 4, 2.0f, 0.5f); // -1..1
 				float ridges = ridge(ridgesFBM);  // 0..1
+				// Делаем горы более заметными
+				ridges = std::max(0.0f, ridges - 0.25f) * 1.2f; // Усиливаем только высокие значения
 				
-				// 5) Детальки (мелкие формы)
-				float details = noise.fbm(wxw * 0.12f, 0.0f, wzw * 0.12f, 2, 2.0f, 0.5f); // -1..1
+				// 6) Детальки (мелкие формы) - усиленные для заметности внутри чанка
+				float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.6f; // -1..1
 				
-				// 6) Склеиваем: материки -> холмы -> хребты -> детали.
+				// 7) Склеиваем: материки -> холмы -> средние -> хребты -> детали.
 				//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
 				float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
 				float combined =
 					hills * 0.65f
-					+ (ridges * 2.0f - 1.0f) * (0.35f * ridgeWeight)   // привести ridges к -1..1 перед весом
-					+ details * 0.12f
-					+ continentBias;                                   // большой макро-тренд
+					+ midNoise                                    // Средне-высокочастотная полоса
+					+ (ridges * 2.0f - 1.0f) * (0.9f * ridgeWeight)   // Горы с большим весом
+					+ details                                     // Усиленные детали
+					+ continentBias;                              // большой макро-тренд
 				
-				// 7) Курация амплитуды и опциональные «террасы»
+				// 8) Курация амплитуды и опциональные «террасы»
 				combined = glm::clamp(combined, -1.2f, 1.2f);
 				float shaped = terrace(remap01(combined), 7.0f, 0.25f);    // 0..1 с лёгкими ступенями
 				shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
 				
-				// 8) Высота поверхности
+				// 9) Высота поверхности
 				float surfaceHeight = baseHeight + shaped * heightVariation;
 				
-				// 9) Плотность (как и раньше)
+				// 10) Плотность (как и раньше)
 				float density = surfaceHeight - wy;
 				
 				densityField[(y * SZ + z) * SX + x] = density;
@@ -175,6 +187,12 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 		}
 	}
 	
+	// Удаляем старый меш перед созданием нового (исправление утечки памяти)
+	if (mesh != nullptr) {
+		delete mesh;
+		mesh = nullptr;
+	}
+	
 	// Генерируем меш из поля плотности
 	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 	generated = true;
@@ -185,6 +203,68 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 		std::cout << "[TERRAIN_GEN] Generated chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
 		          << ") with NEW terrain system (domain warping, continents, ridges, terraces)" << std::endl;
 		debugGenerateCount++;
+	}
+}
+
+// Оптимизированная генерация с использованием callback
+void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
+	// ВАЖНО: не проверяем generated здесь, чтобы можно было перегенерировать чанк
+	
+	// Очищаем воду при регенерации (опционально)
+	if (waterData != nullptr && generated) {
+		waterData->clear();
+	}
+	
+	const int NX = CHUNK_SIZE_X;
+	const int NY = CHUNK_SIZE_Y;
+	const int NZ = CHUNK_SIZE_Z;
+	const int SX = NX + 1;
+	const int SY = NY + 1;
+	const int SZ = NZ + 1;
+	
+	densityField.resize(SX * SY * SZ);
+	
+	// Вычисляем мировую позицию чанка
+	int chunkWorldX = chunkPos.x * CHUNK_SIZE_X;
+	int chunkWorldY = chunkPos.y * CHUNK_SIZE_Y;
+	int chunkWorldZ = chunkPos.z * CHUNK_SIZE_Z;
+	
+	// ОПТИМИЗАЦИЯ: вычисляем высоту поверхности один раз на (x,z), а не в цикле по y
+	// Это в ~32 раза быстрее, так как высота не зависит от y
+	for (int z = 0; z < SZ; z++) {
+		for (int x = 0; x < SX; x++) {
+			// Мировые координаты точки (x, z)
+			float wx = static_cast<float>(chunkWorldX + x);
+			float wz = static_cast<float>(chunkWorldZ + z);
+			
+			// Вычисляем высоту поверхности один раз для этой точки (x, z)
+			float surfaceHeight = evalSurfaceHeight(wx, wz);
+			
+			// Проставляем плотность для всех y по этой высоте
+			for (int y = 0; y < SY; y++) {
+				float wy = static_cast<float>(chunkWorldY + y);
+				float density = surfaceHeight - wy;
+				densityField[(y * SZ + z) * SX + x] = density;
+			}
+		}
+	}
+	
+	// Удаляем старый меш перед созданием нового (исправление утечки памяти)
+	if (mesh != nullptr) {
+		delete mesh;
+		mesh = nullptr;
+	}
+	
+	// Генерируем меш из поля плотности
+	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	generated = true;
+	
+	// ДИАГНОСТИКА: выводим информацию о генерации
+	static int debugOptimizedCount = 0;
+	if (debugOptimizedCount < 3) {
+		std::cout << "[TERRAIN_GEN] Generated chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
+		          << ") with OPTIMIZED terrain system (callback-based, ~32x faster)" << std::endl;
+		debugOptimizedCount++;
 	}
 }
 

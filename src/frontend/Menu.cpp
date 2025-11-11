@@ -246,10 +246,25 @@ GameState Menu::update() {
 		if (Events::jpressed(GLFW_KEY_ENTER) || Events::jpressed(GLFW_KEY_SPACE)) {
 			if (createWorldSelectedItem == 2) {
 				// Создать мир
+				// Убираем пробелы в начале и конце
+				while (!worldName.empty() && (worldName.front() == ' ' || worldName.front() == '\t')) {
+					worldName.erase(0, 1);
+				}
+				while (!worldName.empty() && (worldName.back() == ' ' || worldName.back() == '\t')) {
+					worldName.pop_back();
+				}
+				
 				// Проверяем, что название мира не пустое
 				if (worldName.empty() || worldName == "Новый мир") {
 					// Если название пустое или по умолчанию, используем seed как название
 					worldName = seedInput.empty() ? "Новый мир" : seedInput;
+					// Убираем пробелы и из seedInput
+					while (!worldName.empty() && (worldName.front() == ' ' || worldName.front() == '\t')) {
+						worldName.erase(0, 1);
+					}
+					while (!worldName.empty() && (worldName.back() == ' ' || worldName.back() == '\t')) {
+						worldName.pop_back();
+					}
 				}
 				// Парсим seed из строки
 				try {
@@ -930,11 +945,9 @@ void Menu::refreshWorldList() {
 		
 		// Проверяем, является ли это папкой и содержит ли world.json
 		if (files::directory_exists(worldDirPath)) {
-			// Проверяем наличие world.json (простая проверка через файловую систему)
-			std::ifstream testFile(worldJsonPath);
-			if (testFile.good()) {
+			// Проверяем наличие world.json (используем files::file_exists для поддержки Unicode)
+			if (files::file_exists(worldJsonPath)) {
 				worldList.push_back(item);
-				testFile.close();
 			}
 		}
 	}

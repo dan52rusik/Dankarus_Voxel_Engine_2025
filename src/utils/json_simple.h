@@ -8,6 +8,10 @@
 #include <fstream>
 #include <iostream>
 #include <cstdint>
+#ifdef _WIN32
+#include <windows.h>
+#include <vector>
+#endif
 
 namespace json_simple {
     class Value {
@@ -159,7 +163,21 @@ namespace json_simple {
         }
         
         static Value parseFile(const std::string& filename) {
+#ifdef _WIN32
+            // На Windows нужно конвертировать путь в UTF-16 для поддержки Unicode
+            int size_needed = MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, NULL, 0);
+            if (size_needed <= 0) {
+                std::cerr << "[JSON] Failed to convert filename to UTF-16: " << filename << std::endl;
+                return Value();
+            }
+            std::vector<wchar_t> wfilename(size_needed);
+            MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, wfilename.data(), size_needed);
+            
+            std::ifstream file;
+            file.open(wfilename.data());
+#else
             std::ifstream file(filename);
+#endif
             if (!file.is_open()) {
                 std::cerr << "[JSON] Failed to open file: " << filename << std::endl;
                 return Value();
@@ -309,7 +327,21 @@ namespace json_simple {
     
     // Write JSON to file
     inline bool writeFile(const std::string& filename, const Value& value) {
+#ifdef _WIN32
+        // На Windows нужно конвертировать путь в UTF-16 для поддержки Unicode
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, NULL, 0);
+        if (size_needed <= 0) {
+            std::cerr << "[JSON] Failed to convert filename to UTF-16: " << filename << std::endl;
+            return false;
+        }
+        std::vector<wchar_t> wfilename(size_needed);
+        MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, wfilename.data(), size_needed);
+        
+        std::ofstream file;
+        file.open(wfilename.data(), std::ios::out | std::ios::trunc);
+#else
         std::ofstream file(filename);
+#endif
         if (!file.is_open()) {
             std::cerr << "[JSON] Failed to open file for writing: " << filename << std::endl;
             return false;
