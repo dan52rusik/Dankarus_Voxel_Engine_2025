@@ -310,7 +310,7 @@ void Game::handleInput(float delta) {
     // Обработка кликов мыши для установки/удаления блоков
     vec3 end;
     vec3 norm;
-    vec3 iend;
+    glm::ivec3 iend;
     
     // Сначала проверяем воксельные блоки
     voxel* vox = chunkManager->rayCast(camera->position, camera->front, 15.0f, end, norm, iend);
@@ -318,9 +318,9 @@ void Game::handleInput(float delta) {
     // Сохраняем информацию о блоке под курсором для отрисовки контура
     if (vox != nullptr && vox->id != 0) {
         engine->hasTargetBlock = true;
-        engine->targetBlockX = (int)iend.x;
-        engine->targetBlockY = (int)iend.y;
-        engine->targetBlockZ = (int)iend.z;
+        engine->targetBlockX = iend.x;
+        engine->targetBlockY = iend.y;
+        engine->targetBlockZ = iend.z;
         engine->targetBlockNormal = norm;
     } else {
         engine->hasTargetBlock = false;

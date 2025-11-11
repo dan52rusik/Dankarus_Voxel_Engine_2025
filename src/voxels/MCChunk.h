@@ -6,6 +6,10 @@
 #include "voxel.h"
 #include <glm/glm.hpp>
 #include <vector>
+#include <functional>
+
+// Forward declaration
+class WaterData;
 
 class MCChunk {
 public:
@@ -15,6 +19,7 @@ public:
 	Mesh* voxelMesh; // Меш для воксельных блоков
 	bool generated;
 	bool voxelMeshModified; // Флаг для пересборки меша вокселей
+	bool dirty; // Флаг для отслеживания изменений чанка (для сохранения)
 	
 	// Параметры генерации
 	static const int CHUNK_SIZE_X = 32;
@@ -34,6 +39,45 @@ public:
 	
 	// Получить плотность в точке (для raycast по поверхности)
 	float getDensity(const glm::vec3& worldPos) const;
+	
+	// Система воды
+	WaterData* waterData; // Данные о воде в чанке
+	WaterData* getWaterData() { return waterData; }
+	const WaterData* getWaterData() const { return waterData; }
+	
+	// Генерация воды в чанке
+	// waterLevel - уровень воды в мировых координатах (например, 10.0f)
+	// или функция для получения уровня воды в точке (worldX, worldZ)
+	void generateWater(float waterLevel);
+	void generateWater(std::function<float(int, int)> getWaterLevelFunc);
+	
+	// Проверка, является ли воксель твёрдым (на основе densityField)
+	// Используется для предотвращения заливки воды в грунт
+	// densityField имеет размеры (CHUNK_SIZE_X+1) x (CHUNK_SIZE_Y+1) x (CHUNK_SIZE_Z+1)
+	// Для вокселя (lx, ly, lz) проверяем плотность в точке (lx, ly, lz) densityField
+	inline bool isSolidLocal(int lx, int ly, int lz) const {
+		// Проверяем границы для densityField (0..CHUNK_SIZE_X включительно)
+		if (lx < 0 || lx > CHUNK_SIZE_X ||
+		    ly < 0 || ly > CHUNK_SIZE_Y ||
+		    lz < 0 || lz > CHUNK_SIZE_Z) {
+			return false;
+		}
+		if (!generated || densityField.empty()) {
+			return false;
+		}
+		const int SX = CHUNK_SIZE_X + 1;
+		const int SY = CHUNK_SIZE_Y + 1;
+		const int SZ = CHUNK_SIZE_Z + 1;
+		// Индексация densityField: (y * SZ + z) * SX + x
+		int idx = (ly * SZ + lz) * SX + lx;
+		if (idx < 0 || idx >= static_cast<int>(densityField.size())) {
+			return false;
+		}
+		float d = densityField[idx];
+		// Смягчаем проверку: если плотность чуть отрицательная (около изосерфейса),
+		// всё равно считаем твёрдым, чтобы вода не просачивалась
+		return d > -0.05f; // "земля" (почти положительная плотность, с небольшим запасом)
+	}
 	
 private:
 	std::vector<float> densityField;

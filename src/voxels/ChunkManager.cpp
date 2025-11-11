@@ -1,6 +1,11 @@
 #include "ChunkManager.h"
+#include "HitInfo.h"
+#include "VoxelUtils.h"
+#include "WorldSave.h"
 #include "../maths/voxmaths.h"
 #include "../graphics/MarchingCubes.h"
+#include "../files/files.h"
+#include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -8,11 +13,24 @@
 #include <string>
 #include <memory>
 #include <cctype>
+#include <sstream>
+#include <fstream>
+#ifdef _WIN32
+const char PATH_SEP = '\\';
+#else
+const char PATH_SEP = '/';
+#endif
 
 ChunkManager::ChunkManager() 
-	: noise(1337), baseFreq(0.03f), octaves(4), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(12.0f), heightVariation(4.0f), heightMap(nullptr),
-	  heightMapBaseHeight(0.0f), heightMapScale(1.0f) {
+	: noise(1337), baseFreq(0.03f), octaves(5), lacunarity(2.0f), gain(0.5f), 
+	  baseHeight(40.0f), heightVariation(48.0f), waterLevel(12.0f), heightMap(nullptr),
+	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
+	// Параметры настроены для улучшенной генерации террейна:
+	// - baseHeight = 40.0f (средняя «высота материка»)
+	// - heightVariation = 48.0f (размах рельефа, многоэтажно)
+	// - waterLevel = 12.0f (чуть выше низин, но далеко не везде)
+	// - octaves = 5 (больше деталей)
+	// Теперь террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
 }
 
 ChunkManager::~ChunkManager() {
@@ -42,6 +60,233 @@ glm::ivec3 ChunkManager::worldToChunk(const glm::vec3& worldPos) const {
 	return glm::ivec3(cx, cy, cz);
 }
 
+void ChunkManager::setWorldSave(class WorldSave* worldSave, const std::string& worldPath) {
+	this->worldSave = worldSave;
+	this->worldPath = worldPath;
+}
+
+std::string ChunkManager::getChunkFilePath(int cx, int cy, int cz) const {
+	if (worldPath.empty()) {
+		return "";
+	}
+	std::ostringstream oss;
+	oss << worldPath << PATH_SEP << "regions" << PATH_SEP 
+	    << cx << "_" << cy << "_" << cz << ".bin";
+	return oss.str();
+}
+
+bool ChunkManager::saveChunk(MCChunk* chunk) {
+	if (worldSave == nullptr || worldPath.empty() || chunk == nullptr) {
+		return false;
+	}
+	
+	// Сохраняем только изменённые чанки
+	if (!chunk->dirty) {
+		return true; // Уже сохранён
+	}
+	
+	std::string chunkPath = getChunkFilePath(chunk->chunkPos.x, chunk->chunkPos.y, chunk->chunkPos.z);
+	std::string tempPath = chunkPath + ".tmp";
+	
+	// Создаем папку regions если её нет
+	std::string regionsPath = worldPath + PATH_SEP + "regions";
+	if (!files::directory_exists(regionsPath)) {
+		files::create_directory(regionsPath);
+	}
+	
+	// Пишем во временный файл для атомарности
+	std::ofstream file(tempPath, std::ios::binary);
+	if (!file.is_open()) {
+		std::cerr << "[CHUNK] failed to open temp file for writing: " << tempPath << std::endl;
+		return false;
+	}
+	
+	// Магические байты
+	const char magic[] = "RGON";
+	file.write(magic, 4);
+	
+	// Версия формата региона
+	int version = 1;
+	file.write(reinterpret_cast<const char*>(&version), sizeof(int));
+	
+	// Координаты чанка
+	file.write(reinterpret_cast<const char*>(&chunk->chunkPos.x), sizeof(int));
+	file.write(reinterpret_cast<const char*>(&chunk->chunkPos.y), sizeof(int));
+	file.write(reinterpret_cast<const char*>(&chunk->chunkPos.z), sizeof(int));
+	
+	// Собираем все блоки с id != 0
+	std::vector<std::pair<glm::ivec3, uint8_t>> blocks;
+	
+	for (int y = 0; y < MCChunk::CHUNK_SIZE_Y; y++) {
+		for (int z = 0; z < MCChunk::CHUNK_SIZE_Z; z++) {
+			for (int x = 0; x < MCChunk::CHUNK_SIZE_X; x++) {
+				voxel* vox = chunk->getVoxel(x, y, z);
+				if (vox != nullptr && vox->id != 0) {
+					blocks.push_back({glm::ivec3(x, y, z), vox->id});
+				}
+			}
+		}
+	}
+	
+	// Сохраняем количество блоков
+	int numBlocks = (int)blocks.size();
+	file.write(reinterpret_cast<const char*>(&numBlocks), sizeof(int));
+	
+	// Сохраняем все блоки (локальные координаты в чанке)
+	for (const auto& block : blocks) {
+		file.write(reinterpret_cast<const char*>(&block.first.x), sizeof(int));
+		file.write(reinterpret_cast<const char*>(&block.first.y), sizeof(int));
+		file.write(reinterpret_cast<const char*>(&block.first.z), sizeof(int));
+		file.write(reinterpret_cast<const char*>(&block.second), sizeof(uint8_t));
+	}
+	
+	file.close();
+	
+	// Атомарная запись: переименовываем временный файл в финальный
+	#ifdef _WIN32
+		// На Windows нужно удалить старый файл перед переименованием
+		if (files::file_exists(chunkPath)) {
+			std::remove(chunkPath.c_str());
+		}
+		std::rename(tempPath.c_str(), chunkPath.c_str());
+	#else
+		std::rename(tempPath.c_str(), chunkPath.c_str());
+	#endif
+	
+	// Сбрасываем флаг dirty после успешного сохранения
+	chunk->dirty = false;
+	
+	std::cout << "[CHUNK] save " << chunk->chunkPos.x << "," << chunk->chunkPos.y << "," << chunk->chunkPos.z
+	          << " -> " << chunkPath << " blocks=" << numBlocks 
+	          << " size=" << (numBlocks * (sizeof(int) * 3 + sizeof(uint8_t))) << " bytes" << std::endl;
+	
+	return true;
+}
+
+bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
+	if (worldPath.empty()) {
+		return false;
+	}
+	
+	std::string chunkPath = getChunkFilePath(cx, cy, cz);
+	
+	std::ifstream file(chunkPath, std::ios::binary);
+	if (!file.is_open()) {
+		std::cout << "[CHUNK] no file, generating " << cx << "," << cy << "," << cz << std::endl;
+		return false;
+	}
+	
+	char magic[4];
+	file.read(magic, 4);
+	if (magic[0] != 'R' || magic[1] != 'G' || magic[2] != 'O' || magic[3] != 'N') {
+		std::cout << "[CHUNK] invalid magic bytes, regenerating " << cx << "," << cy << "," << cz << std::endl;
+		file.close();
+		return false;
+	}
+	
+	int version;
+	file.read(reinterpret_cast<char*>(&version), sizeof(int));
+	if (!file.good()) {
+		std::cout << "[CHUNK] failed to read version, regenerating " << cx << "," << cy << "," << cz << std::endl;
+		file.close();
+		return false;
+	}
+	
+	if (version != 1) {
+		std::cout << "[CHUNK] unsupported version " << version << ", regenerating " << cx << "," << cy << "," << cz << std::endl;
+		file.close();
+		return false;
+	}
+	
+	int fileCx, fileCy, fileCz;
+	file.read(reinterpret_cast<char*>(&fileCx), sizeof(int));
+	file.read(reinterpret_cast<char*>(&fileCy), sizeof(int));
+	file.read(reinterpret_cast<char*>(&fileCz), sizeof(int));
+	if (!file.good()) {
+		file.close();
+		return false;
+	}
+	
+	// Проверяем, что координаты совпадают
+	if (fileCx != cx || fileCy != cy || fileCz != cz) {
+		file.close();
+		return false;
+	}
+	
+	int numBlocks;
+	file.read(reinterpret_cast<char*>(&numBlocks), sizeof(int));
+	if (!file.good()) {
+		file.close();
+		return false;
+	}
+	
+	// Создаем чанк
+	chunk = new MCChunk(cx, cy, cz);
+	
+	// Загружаем блоки
+	for (int i = 0; i < numBlocks; i++) {
+		int lx, ly, lz;
+		uint8_t id;
+		file.read(reinterpret_cast<char*>(&lx), sizeof(int));
+		file.read(reinterpret_cast<char*>(&ly), sizeof(int));
+		file.read(reinterpret_cast<char*>(&lz), sizeof(int));
+		file.read(reinterpret_cast<char*>(&id), sizeof(uint8_t));
+		if (file.good()) {
+			chunk->setVoxel(lx, ly, lz, id);
+		} else {
+			break;
+		}
+	}
+	
+	file.close();
+	
+	// После загрузки блоков нужно перегенерировать меш
+	// Но если чанк был сгенерирован из высотной карты, нужно это учесть
+	if (heightMap != nullptr) {
+		// Генерируем поле плотности из высотной карты
+		const int NX = MCChunk::CHUNK_SIZE_X;
+		const int NY = MCChunk::CHUNK_SIZE_Y;
+		const int NZ = MCChunk::CHUNK_SIZE_Z;
+		const int SX = NX + 1;
+		const int SY = NY + 1;
+		const int SZ = NZ + 1;
+		
+		std::vector<float> densityField;
+		densityField.resize(SX * SY * SZ);
+		
+		HeightMapUtils::convertHeightMapToDensityField(*heightMap, densityField,
+		                                                cx, cy, cz,
+		                                                NX, NY, NZ,
+		                                                heightMapBaseHeight, heightMapScale,
+		                                                true, 0);
+		
+		chunk->mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	} else {
+		// Обычная процедурная генерация меша
+		// ВАЖНО: сбрасываем флаг generated, чтобы generate() выполнился
+		chunk->generated = false;
+		chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+	}
+	
+	// Генерируем воду после загрузки/генерации
+	// Используем функцию для получения переменного уровня воды
+	// ВРЕМЕННО: можно отключить для теста, раскомментировав следующую строку
+	// return; // Отключить генерацию воды для теста (раскомментируй для проверки террейна без воды)
+	
+	chunk->generateWater([this](int x, int z) {
+		return this->getWaterLevelAt(x, z);
+	});
+	
+	chunk->generated = true;
+	chunk->dirty = false; // Загруженный чанк не грязный
+	chunk->voxelMeshModified = true; // Гарантируем пересборку меша блоков
+	
+	std::cout << "[CHUNK] load " << cx << "," << cy << "," << cz
+	          << " <- " << chunkPath << " blocks=" << numBlocks << std::endl;
+	
+	return true;
+}
+
 void ChunkManager::generateChunk(int cx, int cy, int cz) {
 	std::string key = chunkKey(cx, cy, cz);
 	
@@ -50,7 +295,21 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		return;
 	}
 	
-	MCChunk* chunk = new MCChunk(cx, cy, cz);
+	// ДИАГНОСТИКА: проверяем, не установлена ли высотная карта
+	if (heightMap != nullptr) {
+		std::cout << "[CHUNK] WARNING: heightMap is set, using heightmap instead of procedural generation!" << std::endl;
+	}
+	
+	// Пытаемся загрузить чанк с диска
+	MCChunk* chunk = nullptr;
+	if (loadChunk(cx, cy, cz, chunk)) {
+		chunks[key] = chunk;
+		return;
+	}
+	
+	// Если не удалось загрузить, генерируем новый
+	chunk = new MCChunk(cx, cy, cz);
+	chunk->dirty = false; // Новый чанк не грязный (будет помечен при изменении)
 	
 	// Если есть высотная карта, используем её, иначе процедурная генерация
 	if (heightMap != nullptr) {
@@ -78,14 +337,26 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		chunk->generated = true;
 	} else {
 		// Обычная процедурная генерация
+		// ВАЖНО: сбрасываем флаг generated, чтобы generate() выполнился
+		chunk->generated = false;
 		chunk->generate(noise, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
 	}
+	
+	// Генерируем воду после генерации террейна
+	// Используем функцию для получения переменного уровня воды
+	chunk->generateWater([this](int x, int z) {
+		return this->getWaterLevelAt(x, z);
+	});
 	
 	chunks[key] = chunk;
 }
 
 void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDistance) {
 	glm::ivec3 cameraChunk = worldToChunk(cameraPos);
+	
+	// Гистерезис-зона: выгружаем на расстоянии renderDistance + 1
+	// чтобы чанки не дергались при дрожании камеры на границе
+	const int unloadDistance = renderDistance + 1;
 	
 	// Удаляем чанки, которые слишком далеко от камеры
 	auto it = chunks.begin();
@@ -99,12 +370,38 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 		int dz = chunkPos.z - cameraChunk.z;
 		int dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
 		
-		if (dist > renderDistance) {
+		if (dist > unloadDistance) {
+			// Сохраняем чанк перед удалением только если он был изменен
+			if (chunk->generated && chunk->dirty) {
+				saveChunk(chunk);
+				chunk->dirty = false;
+			}
 			delete chunk;
 			it = chunks.erase(it);
 		} else {
 			++it;
 		}
+	}
+}
+
+void ChunkManager::saveDirtyChunks() {
+	if (worldPath.empty()) {
+		return;
+	}
+	
+	int savedCount = 0;
+	for (auto& kv : chunks) {
+		MCChunk* c = kv.second;
+		if (c && c->generated && c->dirty) {
+			if (saveChunk(c)) {
+				c->dirty = false;
+				savedCount++;
+			}
+		}
+	}
+	
+	if (savedCount > 0) {
+		std::cout << "[CHUNK] saved " << savedCount << " dirty chunks before unload" << std::endl;
 	}
 }
 
@@ -172,6 +469,116 @@ void ChunkManager::setSeed(int64_t seed) {
 	// Пересоздаем объект noise с новым seed используя placement new
 	noise.~OpenSimplex3D();
 	new (&noise) OpenSimplex3D(seed);
+}
+
+void ChunkManager::setWaterLevel(float waterLevel) {
+	this->waterLevel = waterLevel;
+}
+
+float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
+	// Сначала вычисляем примерную высоту поверхности в этой точке
+	// Используем те же параметры, что и при генерации террейна
+	float wx = static_cast<float>(worldX);
+	float wz = static_cast<float>(worldZ);
+	
+	// Используем ту же улучшенную систему генерации, что и в MCChunk::generate
+	// 1) Domain warping
+	float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
+	float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
+	float warpAmp = 35.0f;
+	float wxw = wx + w1 * warpAmp;
+	float wzw = wz + w2 * warpAmp;
+	
+	// 2) Континентальность
+	float continents = 0.5f * noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f) + 0.5f;
+	float continentBias = glm::mix(-0.6f, 0.6f, continents);
+	
+	// 3) Базовый FBM
+	float hills = noise.fbm(wxw * 0.02f, 0.0f, wzw * 0.02f, 5, 2.0f, 0.5f);
+	
+	// 4) Ридж-мультифрактал
+	float ridgesFBM = noise.fbm(wxw * 0.06f, 0.0f, wzw * 0.06f, 4, 2.0f, 0.5f);
+	float ridges = 1.0f - std::fabs(ridgesFBM);
+	ridges = ridges * ridges;
+	
+	// 5) Детальки
+	float details = noise.fbm(wxw * 0.12f, 0.0f, wzw * 0.12f, 2, 2.0f, 0.5f);
+	
+	// 6) Склеиваем
+	float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents);
+	float combined =
+		hills * 0.65f
+		+ (ridges * 2.0f - 1.0f) * (0.35f * ridgeWeight)
+		+ details * 0.12f
+		+ continentBias;
+	
+	// 7) Курация и террасы
+	combined = glm::clamp(combined, -1.2f, 1.2f);
+	float remapped = 0.5f * combined + 0.5f; // remap01
+	float t = std::floor(remapped * 7.0f) / 7.0f;
+	float shaped = glm::mix(remapped, t, 0.25f);
+	shaped = shaped * 2.0f - 1.0f;
+	
+	// 8) Высота поверхности
+	float surfaceHeight = baseHeight + shaped * heightVariation;
+	
+	// Отладочный вывод для первых нескольких точек
+	static int debugWaterLevelCount = 0;
+	if (debugWaterLevelCount < 5) {
+		std::cout << "[WATER_LEVEL] baseHeight=" << baseHeight
+		          << " heightVariation=" << heightVariation
+		          << " waterLevel=" << waterLevel
+		          << " surfaceHeight=" << surfaceHeight
+		          << " at (" << worldX << ", " << worldZ << ")" << std::endl;
+		debugWaterLevelCount++;
+	}
+	
+	// Используем шум для определения типа водоема
+	// Разные частоты шума для разных типов водоемов
+	
+	// Морской шум (очень крупные области) - низкие области
+	float seaNoise = noise.fbm(wx * 0.001f, 0.0f, wz * 0.001f, 2, 2.0f, 0.5f);
+	
+	// Озерный шум (средние области) - долины
+	float lakeNoise = noise.fbm(wx * 0.005f + 1000.0f, 0.0f, wz * 0.005f + 2000.0f, 2, 2.0f, 0.5f);
+	
+	// Речной шум (узкие полосы) - извилистые долины
+	float riverNoise1 = noise.fbm(wx * 0.02f + 5000.0f, 0.0f, wz * 0.02f + 3000.0f, 1, 2.0f, 0.5f);
+	float riverNoise2 = noise.fbm(wx * 0.015f + 7000.0f, 0.0f, wz * 0.015f + 4000.0f, 1, 2.0f, 0.5f);
+	float riverDist = std::sqrt(riverNoise1 * riverNoise1 + riverNoise2 * riverNoise2);
+	
+	// Определяем тип водоема на основе шума и высоты поверхности
+	// ВАЖНО: вода должна быть только в низинах, а не везде!
+	
+	// Море: большие низкие области (seaNoise > 0.3 и surfaceHeight < waterLevel + 2)
+	// Только в действительно низких местах
+	if (seaNoise > 0.3f && surfaceHeight < waterLevel + 2.0f) {
+		return waterLevel + 1.5f; // Море немного выше базового уровня
+	}
+	
+	// Озеро: средние долины (lakeNoise > 0.6 и surfaceHeight < waterLevel + 1)
+	// Только в глубоких долинах
+	if (lakeNoise > 0.6f && surfaceHeight < waterLevel + 1.0f) {
+		return waterLevel + 0.5f; // Озеро на уровне воды
+	}
+	
+	// Река: узкие долины (riverDist < 0.15 и surfaceHeight < waterLevel)
+	// Только в очень узких и низких долинах
+	if (riverDist < 0.15f && surfaceHeight < waterLevel) {
+		// Высота реки зависит от глубины долины
+		float riverDepth = waterLevel - surfaceHeight;
+		float riverHeight = waterLevel - 0.3f + std::min(riverDepth * 0.2f, 0.8f);
+		return riverHeight;
+	}
+	
+	// Вода только в очень низких областях (значительно ниже базового уровня воды)
+	// Это предотвращает глобальное затопление
+	if (surfaceHeight < waterLevel - 3.0f) {
+		return waterLevel; // Заполняем водой только глубокие низины
+	}
+	
+	// Суша - нет воды (большинство мест)
+	return -1000.0f; // Очень низкое значение означает отсутствие воды
 }
 
 // ==================== Работа с высотными картами ====================
@@ -361,7 +768,7 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 	}
 }
 
-voxel* ChunkManager::rayCast(const glm::vec3& a, const glm::vec3& dir, float maxDist, glm::vec3& end, glm::vec3& norm, glm::vec3& iend) {
+voxel* ChunkManager::rayCast(const glm::vec3& a, const glm::vec3& dir, float maxDist, glm::vec3& end, glm::vec3& norm, glm::ivec3& iend) {
 	float px = a.x;
 	float py = a.y;
 	float pz = a.z;
@@ -447,6 +854,49 @@ voxel* ChunkManager::rayCast(const glm::vec3& a, const glm::vec3& dir, float max
 	end.z = pz + t * dz;
 	norm.x = norm.y = norm.z = 0.0f;
 	return nullptr;
+}
+
+bool ChunkManager::rayCastDetailed(const glm::vec3& start, const glm::vec3& dir, float maxDist, HitInfo::HitInfoDetails& hitInfo) {
+	hitInfo.clear();
+	
+	// Используем улучшенный DDA алгоритм из VoxelUtils
+	glm::vec3 normalizedDir = glm::normalize(dir);
+	glm::ivec3 voxelPos(
+		static_cast<int>(std::floor(start.x)),
+		static_cast<int>(std::floor(start.y)),
+		static_cast<int>(std::floor(start.z))
+	);
+	
+	float distanceSq = maxDist * maxDist;
+	glm::vec3 currentPos = start;
+	
+	// Итерация по вокселям на пути луча
+	for (int step = 0; step < 1000 && glm::dot(currentPos - start, currentPos - start) < distanceSq; ++step) {
+		glm::vec3 hitPos;
+		HitInfo::BlockFace blockFace;
+		
+		glm::ivec3 nextVoxelPos = VoxelUtils::OneVoxelStep(voxelPos, currentPos, normalizedDir, hitPos, blockFace);
+		
+		// Проверяем блок в новой позиции
+		voxel* vox = getVoxel(nextVoxelPos.x, nextVoxelPos.y, nextVoxelPos.z);
+		
+		if (vox != nullptr && vox->id != 0) {
+			// Вычисляем квадрат расстояния
+			glm::vec3 diff = hitPos - start;
+			float distSq = glm::dot(diff, diff);
+			
+			// Получаем нормаль для грани
+			glm::vec3 normal = VoxelUtils::normals[static_cast<int>(blockFace)];
+			
+			hitInfo.setFromRaycast(hitPos, normal, nextVoxelPos, vox, distSq);
+			return true;
+		}
+		
+		voxelPos = nextVoxelPos;
+		currentPos = hitPos + normalizedDir * 0.01f; // Небольшое смещение для следующей итерации
+	}
+	
+	return false;
 }
 
 bool ChunkManager::rayCastSurface(const glm::vec3& start, const glm::vec3& dir, float maxDist, glm::vec3& hitPos, glm::vec3& hitNorm) {

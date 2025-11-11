@@ -1,10 +1,33 @@
 #include "MCChunk.h"
 #include "graphics/MarchingCubes.h"
+#include "WaterData.h"
 #include <vector>
 #include <iostream>
+#include <glm/glm.hpp>
+#include <cmath>
+#include <algorithm>
+
+// ============ Утилиты для генерации террейна ============
+
+// [-1..1] -> [0..1]
+static inline float remap01(float x) {
+	return 0.5f * x + 0.5f;
+}
+
+// ridge: превращает fbm в острые «гребни» [0..1]
+static inline float ridge(float n) {
+	n = 1.0f - std::fabs(n);        // инвертируем «долины»
+	return n * n;                   // усиливаем вершины
+}
+
+// террасы (опционально, даёт «ступеньки» скал). intensity ~ [0..1]
+static inline float terrace(float h, float steps = 6.0f, float intensity = 0.35f) {
+	float t = std::floor(h * steps) / steps;
+	return glm::mix(h, t, intensity);
+}
 
 MCChunk::MCChunk(int cx, int cy, int cz) 
-	: chunkPos(cx, cy, cz), mesh(nullptr), voxelMesh(nullptr), generated(false), voxelMeshModified(true) {
+	: chunkPos(cx, cy, cz), mesh(nullptr), voxelMesh(nullptr), generated(false), voxelMeshModified(true), dirty(false), waterData(nullptr) {
 	// Вычисляем позицию в мире (центр чанка)
 	worldPos = glm::vec3(
 		cx * CHUNK_SIZE_X + CHUNK_SIZE_X / 2.0f,
@@ -18,6 +41,9 @@ MCChunk::MCChunk(int cx, int cy, int cz)
 		voxels[i].id = 0; // Все блоки пустые по умолчанию
 		voxels[i].density = 0.0f;
 	}
+	
+	// Инициализируем систему воды
+	waterData = new WaterData();
 }
 
 MCChunk::~MCChunk() {
@@ -29,6 +55,9 @@ MCChunk::~MCChunk() {
 	}
 	if (voxels != nullptr) {
 		delete[] voxels;
+	}
+	if (waterData != nullptr) {
+		delete waterData;
 	}
 }
 
@@ -49,14 +78,19 @@ void MCChunk::setVoxel(int lx, int ly, int lz, uint8_t id) {
 		std::cout << "[DEBUG] MCChunk::setVoxel: index out of bounds: " << index << " for (" << lx << ", " << ly << ", " << lz << ")" << std::endl;
 		return;
 	}
+	
+	// Помечаем чанк как измененный для сохранения
+	dirty = true;
 	voxels[index].id = id;
 	voxelMeshModified = true;
 }
 
 void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation) {
-	if (generated) {
-		return;
-	}
+	// ВАЖНО: не проверяем generated здесь, чтобы можно было перегенерировать чанк
+	// (например, при изменении параметров генерации)
+	// if (generated) {
+	// 	return;
+	// }
 	
 	const int NX = CHUNK_SIZE_X;
 	const int NY = CHUNK_SIZE_Y;
@@ -79,15 +113,64 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 				float wy = (float)(chunkPos.y * CHUNK_SIZE_Y + y);
 				float wz = (float)(chunkPos.z * CHUNK_SIZE_Z + z);
 				
-				// Вычисляем высоту поверхности в точке (x, z) используя шум только по X и Z
+				// Вычисляем высоту поверхности в точке (x, z) используя улучшенную систему генерации
 				// ВАЖНО: используем те же мировые координаты, что и в соседних чанках
-				float heightNoise = noise.fbm(wx * baseFreq, 0.0f, wz * baseFreq, octaves, lacunarity, gain);
-				float surfaceHeight = baseHeight + heightNoise * heightVariation;
 				
-				// Плотность: если y < surfaceHeight, то плотность положительная (земля)
+				// 1) Domain warping — «кривим» входные координаты, чтобы исчезла регулярность FBM
+				float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
+				float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
+				float warpAmp = 35.0f; // насколько «гнём» координаты (в мировых юнитах)
+				float wxw = wx + w1 * warpAmp;
+				float wzw = wz + w2 * warpAmp;
+				
+				// 2) Континентальность (очень низкая частота) — задаёт большие области суши/впадин
+				float continents = remap01(noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f));
+				// «поднимаем» материки и немного притапливаем впадины
+				float continentBias = glm::mix(-0.6f, 0.6f, continents);  // [-0.6..0.6]
+				
+				// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
+				float hills = noise.fbm(wxw * 0.02f, 0.0f, wzw * 0.02f, 5, 2.0f, 0.5f); // -1..1
+				
+				// 4) Ридж-мультифрактал (острые хребты/скалы)
+				float ridgesFBM = noise.fbm(wxw * 0.06f, 0.0f, wzw * 0.06f, 4, 2.0f, 0.5f); // -1..1
+				float ridges = ridge(ridgesFBM);  // 0..1
+				
+				// 5) Детальки (мелкие формы)
+				float details = noise.fbm(wxw * 0.12f, 0.0f, wzw * 0.12f, 2, 2.0f, 0.5f); // -1..1
+				
+				// 6) Склеиваем: материки -> холмы -> хребты -> детали.
+				//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
+				float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
+				float combined =
+					hills * 0.65f
+					+ (ridges * 2.0f - 1.0f) * (0.35f * ridgeWeight)   // привести ridges к -1..1 перед весом
+					+ details * 0.12f
+					+ continentBias;                                   // большой макро-тренд
+				
+				// 7) Курация амплитуды и опциональные «террасы»
+				combined = glm::clamp(combined, -1.2f, 1.2f);
+				float shaped = terrace(remap01(combined), 7.0f, 0.25f);    // 0..1 с лёгкими ступенями
+				shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
+				
+				// 8) Высота поверхности
+				float surfaceHeight = baseHeight + shaped * heightVariation;
+				
+				// 9) Плотность (как и раньше)
 				float density = surfaceHeight - wy;
 				
 				densityField[(y * SZ + z) * SX + x] = density;
+				
+				// Отладочный вывод для первых нескольких точек (чтобы проверить параметры)
+				static int debugTerrainCount = 0;
+				if (debugTerrainCount < 5 && x == 0 && z == 0) {
+					std::cout << "[TERRAIN] baseHeight=" << baseHeight 
+					          << " heightVariation=" << heightVariation
+					          << " continents=" << continents
+					          << " combined=" << combined
+					          << " shaped=" << shaped
+					          << " surfaceHeight=" << surfaceHeight << std::endl;
+					debugTerrainCount++;
+				}
 			}
 		}
 	}
@@ -95,6 +178,106 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 	// Генерируем меш из поля плотности
 	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 	generated = true;
+	
+	// ДИАГНОСТИКА: выводим информацию о генерации
+	static int debugGenerateCount = 0;
+	if (debugGenerateCount < 3) {
+		std::cout << "[TERRAIN_GEN] Generated chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
+		          << ") with NEW terrain system (domain warping, continents, ridges, terraces)" << std::endl;
+		debugGenerateCount++;
+	}
+}
+
+void MCChunk::generateWater(float waterLevel) {
+	// Используем функцию с постоянным уровнем воды
+	generateWater([waterLevel](int, int) { return waterLevel; });
+}
+
+void MCChunk::generateWater(std::function<float(int, int)> getWaterLevelFunc) {
+	if (waterData == nullptr) {
+		return;
+	}
+	
+	// Вычисляем локальную позицию чанка в мире
+	float chunkWorldY = chunkPos.y * CHUNK_SIZE_Y;
+	int chunkWorldX = chunkPos.x * CHUNK_SIZE_X;
+	int chunkWorldZ = chunkPos.z * CHUNK_SIZE_Z;
+	
+	// Генерируем воду для каждого вокселя
+	for (int z = 0; z < CHUNK_SIZE_Z; z++) {
+		for (int x = 0; x < CHUNK_SIZE_X; x++) {
+			// Вычисляем мировые координаты
+			int worldX = chunkWorldX + x;
+			int worldZ = chunkWorldZ + z;
+			
+			// Получаем уровень воды для этой точки
+			float localWaterLevel = getWaterLevelFunc(worldX, worldZ);
+			
+			// Если уровень воды не определен (суша), пропускаем
+			if (localWaterLevel < -100.0f) {
+				continue;
+			}
+			
+			// Вычисляем локальный уровень воды относительно чанка
+			int localWaterY = static_cast<int>(localWaterLevel - chunkWorldY);
+			
+			// Отладочный вывод для первых нескольких точек
+			static int debugCount = 0;
+			if (debugCount < 10) {
+				std::cout << "[WATER] Generating water at (" << worldX << ", " << worldZ << ") level=" << localWaterLevel 
+				          << " chunkY=" << chunkWorldY << " localY=" << localWaterY << std::endl;
+				debugCount++;
+			}
+			
+			// Определяем диапазон для заполнения водой
+			// Если уровень воды выше чанка, заполняем весь чанк
+			// Если уровень воды внутри чанка, заполняем до уровня воды
+			int minY = 0;
+			int maxY;
+			if (localWaterY < 0) {
+				// Уровень воды ниже чанка - не заполняем
+				continue;
+			} else if (localWaterY >= CHUNK_SIZE_Y) {
+				// Уровень воды выше чанка - заполняем весь чанк
+				maxY = CHUNK_SIZE_Y;
+			} else {
+				// Уровень воды внутри чанка - заполняем до уровня воды
+				maxY = localWaterY + 1; // +1 чтобы заполнить и сам уровень воды
+			}
+			
+			// Заполняем водой все воксели от низа до уровня воды
+			int waterCount = 0;
+			for (int y = minY; y < maxY && y < CHUNK_SIZE_Y; y++) {
+				// Пропускаем твёрдое (проверяем плотность перед заливкой)
+				if (isSolidLocal(x, y, z)) {
+					continue;
+				}
+				
+				voxel* vox = getVoxel(x, y, z);
+				
+				// Если воксель пустой (воздух), добавляем воду
+				if (vox == nullptr || vox->id == 0) {
+					// Вычисляем мировую Y координату
+					float wy = chunkWorldY + y;
+					
+					// Если эта точка ниже или на уровне воды, заполняем водой
+					if (wy <= localWaterLevel) {
+						waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+						waterData->setVoxelActive(x, y, z);
+						waterCount++;
+					}
+				}
+			}
+			
+			// Отладочный вывод для первых нескольких точек с водой
+			static int debugWaterCount = 0;
+			if (debugWaterCount < 5 && waterCount > 0) {
+				std::cout << "[WATER] Added " << waterCount << " water voxels at (" << worldX << ", " << worldZ 
+				          << ") level=" << localWaterLevel << std::endl;
+				debugWaterCount++;
+			}
+		}
+	}
 }
 
 float MCChunk::getDensity(const glm::vec3& worldPos) const {

@@ -36,6 +36,10 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
     chunkManager->clear();
     chunkManager->setSeed(seed);
     chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+    
+    // Устанавливаем WorldSave и путь к миру для автосохранения чанков
+    chunkManager->setWorldSave(worldSave, worldPath);
+    
     worldLoaded = true;
     
     // Сохраняем мир сразу после создания, чтобы он появился в списке
@@ -67,6 +71,10 @@ bool WorldManager::loadWorld(const std::string& worldPath,
     
     // Очищаем текущий мир перед загрузкой
     chunkManager->clear();
+    
+    // Устанавливаем WorldSave и путь к миру для автосохранения чанков
+    chunkManager->setWorldSave(worldSave, worldPath);
+    
     if (worldSave->load(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
         std::cout << "[LOAD] World loaded successfully from " << worldPath << " (name: " << worldName << ", seed: " << seed << ")" << std::endl;
         std::cout << "[LOAD] Generator params: baseFreq=" << baseFreq << ", octaves=" << octaves 
@@ -112,11 +120,8 @@ bool WorldManager::saveWorld(const std::string& worldPath, const std::string& wo
 
 void WorldManager::unloadWorld() {
     if (worldLoaded && !currentWorldPath.empty()) {
-        float bf, l, g, bh, hv;
-        int o;
-        chunkManager->getNoiseParams(bf, o, l, g, bh, hv);
-        // Сохраняем перед выгрузкой, если нужно
-        // worldSave->save(currentWorldPath, *chunkManager, ...);
+        // Сохраняем все измененные чанки перед выгрузкой
+        chunkManager->saveDirtyChunks();
         std::cout << "[GAME] World uninitialized, ready for new world" << std::endl;
     }
     worldLoaded = false;
