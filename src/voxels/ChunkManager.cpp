@@ -24,6 +24,7 @@
 #include <sstream>
 #include <fstream>
 #include <cfloat>  // для std::isfinite
+#include <ctime>   // для time()
 #ifdef _WIN32
 const char PATH_SEP = '\\';
 #else
@@ -32,13 +33,13 @@ const char PATH_SEP = '/';
 
 ChunkManager::ChunkManager() 
 	: noise(1337), baseFreq(1.0f / 256.0f), octaves(5), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(40.0f), heightVariation(200.0f), waterLevel(38.0f), heightMap(nullptr),
+	  baseHeight(40.0f), heightVariation(240.0f), waterLevel(38.0f), heightMap(nullptr),
 	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
 	// Параметры настроены для красивого и разнообразного ландшафта:
 	// - baseFreq = 1.0f/256.0f - ПРАВИЛЬНО: float деление, не int!
 	// - octaves = 5 - оптимально для деталей без перегрузки
 	// - baseHeight = 40.0f - уровень моря
-	// - heightVariation = 200.0f - большой размах для заметных холмов, долин и гор
+	// - heightVariation = 240.0f - большой размах для заметных холмов, долин и гор (220-260 для выразительности)
 	// - waterLevel = 38.0f - уровень воды (baseHeight - 2.0f, будет переустановлен при создании мира)
 	// Террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
 	// Биомы определяются по температуре и влажности для более реалистичного распределения
@@ -305,6 +306,11 @@ bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
 }
 
 void ChunkManager::generateChunk(int cx, int cy, int cz) {
+	// Ранний выход при выходе за границы мира
+	if (isOutsideBounds(cx, cz)) {
+		return;
+	}
+	
 	std::string key = chunkKey(cx, cy, cz);
 	
 	// Проверяем, не загружен ли уже чанк
@@ -413,6 +419,7 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 	// Гистерезис-зона: выгружаем на расстоянии renderDistance + 1
 	// чтобы чанки не дергались при дрожании камеры на границе
 	const int unloadDistance = renderDistance + 1;
+	const int yRadius = 1; // Только текущий уровень и соседние по Y
 	
 	// Удаляем чанки, которые слишком далеко от камеры
 	auto it = chunks.begin();
@@ -420,14 +427,17 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 		MCChunk* chunk = it->second;
 		glm::ivec3 chunkPos = chunk->chunkPos;
 		
-		// Вычисляем расстояние в чанках
+		// Вычисляем расстояние в чанках (L∞ норма)
 		int dx = chunkPos.x - cameraChunk.x;
 		int dy = chunkPos.y - cameraChunk.y;
 		int dz = chunkPos.z - cameraChunk.z;
-		int dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+		int dist = std::max({std::abs(dx), std::abs(dz)}); // По X/Z
 		
-		if (dist > unloadDistance) {
-			// Сохраняем чанк перед удалением только если он был изменен
+		// Также проверяем Y (если слишком далеко по вертикали)
+		bool tooFarY = std::abs(dy) > yRadius + 1;
+		
+		if (dist > unloadDistance || tooFarY) {
+			// Сохраняем чанк перед удалением только если он был изменен и не только что сгенерирован
 			if (chunk->generated && chunk->dirty) {
 				saveChunk(chunk);
 				chunk->dirty = false;
@@ -461,26 +471,86 @@ void ChunkManager::saveDirtyChunks() {
 	}
 }
 
-void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
-	glm::ivec3 cameraChunk = worldToChunk(cameraPos);
+void ChunkManager::saveDirtyChunksBudgeted(int maxPerCall) {
+	if (worldPath.empty()) {
+		return;
+	}
 	
-	// Генерируем чанки вокруг камеры
-	for (int x = -renderDistance; x <= renderDistance; x++) {
-		for (int y = -renderDistance; y <= renderDistance; y++) {
-			for (int z = -renderDistance; z <= renderDistance; z++) {
-				// Генерируем только чанки в пределах радиуса
-				if (std::max({std::abs(x), std::abs(y), std::abs(z)}) <= renderDistance) {
-					int cx = cameraChunk.x + x;
-					int cy = cameraChunk.y + y;
-					int cz = cameraChunk.z + z;
-					generateChunk(cx, cy, cz);
-				}
+	int saved = 0;
+	for (auto& kv : chunks) {
+		MCChunk* c = kv.second;
+		if (c && c->generated && c->dirty) {
+			if (saveChunk(c)) {
+				c->dirty = false;
+				if (++saved >= maxPerCall) break;
 			}
 		}
+	}
+}
+
+void ChunkManager::setWorldBoundsByMeters(int worldSizeXZ_Meters) {
+	int half = worldSizeXZ_Meters / (2 * MCChunk::CHUNK_SIZE_X);
+	minChunkX = -half;
+	maxChunkX = +half;
+	minChunkZ = -half;
+	maxChunkZ = +half;
+	std::cout << "[CHUNK] World bounds set: X=[" << minChunkX << ".." << maxChunkX 
+	          << "], Z=[" << minChunkZ << ".." << maxChunkZ << "] (size=" << worldSizeXZ_Meters << "m)" << std::endl;
+}
+
+// Вспомогательная функция для генерации чанков по кольцам (ring order)
+static void ringOrder(int R, std::vector<glm::ivec3>& out, int cy, int yRadius) {
+	// Добавляем клетки на расстоянии R по L∞ (только граница кольца)
+	for (int dx = -R; dx <= R; ++dx) {
+		for (int dz = -R; dz <= R; ++dz) {
+			if (std::max(std::abs(dx), std::abs(dz)) != R) continue; // только граница кольца
+			for (int dy = -yRadius; dy <= yRadius; ++dy) {
+				out.emplace_back(dx, dy, dz);
+			}
+		}
+	}
+}
+
+void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
+	glm::ivec3 cc = worldToChunk(cameraPos);
+	
+	// Только 3 уровня по высоте: текущий, над и под
+	const int yRadius = 1;
+	
+	// Бюджет на кадр: сколько чанков генерить/читать
+	const int budgetPerFrame = 6;
+	
+	int issued = 0;
+	for (int r = 0; r <= renderDistance && issued < budgetPerFrame; ++r) {
+		std::vector<glm::ivec3> ring;
+		ring.reserve((8 * r + 4) * (2 * yRadius + 1));
+		ringOrder(r, ring, cc.y, yRadius);
+		
+		for (const auto& d : ring) {
+			int cx = cc.x + d.x;
+			int cy = cc.y + d.y;
+			int cz = cc.z + d.z;
+			
+			if (isOutsideBounds(cx, cz)) continue;
+			
+			std::string key = chunkKey(cx, cy, cz);
+			if (chunks.find(key) == chunks.end()) {
+				generateChunk(cx, cy, cz);
+				if (++issued >= budgetPerFrame) break;
+			}
+		}
+		if (issued >= budgetPerFrame) break;
 	}
 	
 	// Выгружаем далекие чанки
 	unloadDistantChunks(cameraPos, renderDistance);
+	
+	// Периодическое сохранение (раз в 2 секунды)
+	double currentTime = static_cast<double>(std::time(nullptr));
+	if (currentTime - lastSaveTime > 2.0) {
+		saveDirtyChunksBudgeted(2); // Сохраняем по 2 чанка за раз
+		lastSaveTime = currentTime;
+	}
 }
 
 void ChunkManager::updateWaterSimulation(float deltaTime) {
@@ -590,7 +660,7 @@ namespace {
 		float wx = noise.fbm_norm(x * wf, 0.0f, z * wf, 3, 2.1f, 0.55f);
 		float wz = noise.fbm_norm((x + 37.7f) * wf, 0.0f, (z - 19.3f) * wf, 3, 2.1f, 0.55f);
 		// Фикс по миру: 8..24 вокселей (не через обратную частоту!)
-		float maxWarp = 16.0f;     // было 12 → сделать заметнее для теста
+		float maxWarp = 14.0f;     // оптимально для выразительности (12-16)
 		return { wx * maxWarp, wz * maxWarp };
 	}
 }

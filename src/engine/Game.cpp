@@ -154,7 +154,7 @@ void Game::handleMenuActions() {
             float defaultLacunarity = 2.0f;
             float defaultGain = 0.5f;
             float defaultBaseHeight = 40.0f;
-            float defaultHeightVariation = 200.0f;
+            float defaultHeightVariation = 240.0f;  // 220-260 для выразительных долин/хребтов
             
             if (worldManager->createWorld(worldName, seed,
                                           defaultBaseFreq, defaultOctaves, defaultLacunarity, defaultGain,
@@ -169,6 +169,13 @@ void Game::handleMenuActions() {
                 engine->gain = defaultGain;
                 engine->baseHeight = defaultBaseHeight;
                 engine->heightVariation = defaultHeightVariation;
+                
+                // ЖЕСТКАЯ ПРИВЯЗКА: Устанавливаем позицию игрока над террейном при создании нового мира
+                Camera* camera = engine->getCamera();
+                if (camera != nullptr) {
+                    worldManager->spawnPlayerSafely(camera, 0.0f, 0.0f, 3.0f, 512.0f);
+                }
+                
                 std::cout << "[CREATE] New world created with default generator params" << std::endl;
             }
         }

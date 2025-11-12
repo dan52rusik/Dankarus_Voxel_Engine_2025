@@ -24,7 +24,7 @@ public:
 	
 	// Сохранение/загрузка позиции игрока
 	bool savePlayer(const std::string& worldPath, Camera* camera);
-	bool loadPlayer(const std::string& worldPath, Camera* camera);
+	bool loadPlayer(const std::string& worldPath, Camera* camera); // Только чтение/запись JSON, без логики спавна
 	
 private:
 	// Вспомогательные функции для работы с файлами

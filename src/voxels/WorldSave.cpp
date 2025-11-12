@@ -407,7 +407,7 @@ bool WorldSave::load(const std::string& worldPath, ChunkManager& chunkManager, s
 		gp.lacunarity = params["lacunarity"].getNumber(2.0f);
 		gp.gain = params["gain"].getNumber(0.5f);
 		gp.baseHeight = params["baseHeight"].getNumber(40.0f);
-		gp.heightVariation = params["heightVariation"].getNumber(200.0f);
+			gp.heightVariation = params["heightVariation"].getNumber(240.0f);
 		gp.waterLevel = params["waterLevel"].getNumber(gp.baseHeight - 2.0f);  // читаем из JSON или вычисляем
 	} else {
 		// Значения по умолчанию
@@ -416,7 +416,7 @@ bool WorldSave::load(const std::string& worldPath, ChunkManager& chunkManager, s
 		gp.lacunarity = 2.0f;
 		gp.gain = 0.5f;
 		gp.baseHeight = 40.0f;
-		gp.heightVariation = 200.0f;
+			gp.heightVariation = 240.0f;
 		gp.waterLevel = gp.baseHeight - 2.0f;
 	}
 	gp.seed = seed;
@@ -432,12 +432,8 @@ bool WorldSave::load(const std::string& worldPath, ChunkManager& chunkManager, s
 	// Применяем параметры через единую функцию configure()
 	chunkManager.configure(gp);
 	
-	// Загружаем player.json (если есть камера)
-	if (camera != nullptr) {
-		loadPlayer(worldPath, camera);
-	}
-	
 	// Загружаем регионы (чанки)
+	// Примечание: загрузка player.json теперь выполняется в WorldManager::loadWorld()
 	std::string regionsPath = worldPath + sep + "regions";
 	std::vector<std::string> regionFiles = files::list_files(regionsPath, ".bin");
 	
@@ -552,6 +548,7 @@ bool WorldSave::loadPlayer(const std::string& worldPath, Camera* camera) {
 	
 	if (playerJson.type == json_simple::Value::NULL_TYPE) {
 		// Файл может не существовать - это нормально
+		// Если файла нет - вернём false; WorldManager сам выберет безопасный спавн
 		return false;
 	}
 	
@@ -562,6 +559,8 @@ bool WorldSave::loadPlayer(const std::string& worldPath, Camera* camera) {
 			float x = player["position"][0].getNumber(0.0);
 			float y = player["position"][1].getNumber(0.0);
 			float z = player["position"][2].getNumber(0.0);
+			
+			// Только читаем позицию из JSON, без логики спавна
 			camera->position = glm::vec3(x, y, z);
 		}
 		

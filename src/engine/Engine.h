@@ -67,8 +67,8 @@ public:
     int octaves = 5;
     float lacunarity = 2.0f;
     float gain = 0.5f;
-    float baseHeight = 40.0f;
-    float heightVariation = 200.0f;
+	float baseHeight = 40.0f;
+	float heightVariation = 240.0f;  // 220-260 для выразительных долин/хребтов
     int seed = 1337;
     int renderDistance = 3;
     float speed = 5.0f;

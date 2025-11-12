@@ -2,7 +2,9 @@
 
 #include <iostream>
 #include <string>
+#include <cmath>
 #include "voxels/ChunkManager.h"
+#include "voxels/MCChunk.h"
 #include "voxels/DecoManager.h"
 #include "voxels/WorldSave.h"
 #include "voxels/WorldBuilder.h"
@@ -12,6 +14,7 @@
 #include "frontend/Menu.h"
 #include "files/files.h"
 #include "window/Camera.h"
+#include <glm/glm.hpp>
 
 WorldManager::WorldManager(ChunkManager* chunkManager, WorldSave* worldSave, Menu* menu)
     : chunkManager(chunkManager), worldSave(worldSave), menu(menu), decoManager(nullptr), worldBuilder(nullptr) {
@@ -57,17 +60,19 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
 	// Устанавливаем WorldSave и путь к миру для автосохранения чанков
 	chunkManager->setWorldSave(worldSave, worldPath);
 	
+	// Устанавливаем границы мира: 10к×10к метров
+	const int worldSize = 10000;
+	chunkManager->setWorldBoundsByMeters(worldSize);
+	
 	// Создаём и инициализируем менеджер декораций
 	decoManager = new DecoManager();
-	// Размеры мира для декораций (можно настроить)
-	int worldWidth = 4096;  // Размер мира по X
-	int worldHeight = 4096; // Размер мира по Z
-	decoManager->onWorldLoaded(worldWidth, worldHeight, chunkManager, worldPath, seed);
+	// Размеры мира для декораций: 10к×10к
+	decoManager->onWorldLoaded(worldSize, worldSize, chunkManager, worldPath, seed);
 	chunkManager->setDecoManager(decoManager);
 	
 	// Создаём и инициализируем WorldBuilder для генерации дорог, озер и префабов
 	worldBuilder = new WorldBuilder(chunkManager);
-	worldBuilder->Initialize(worldWidth, seed);
+	worldBuilder->Initialize(worldSize, seed);
 	
 	// Передаем WorldBuilder в ChunkManager для применения модификаций при генерации чанков
 	chunkManager->setWorldBuilder(worldBuilder);
@@ -158,6 +163,17 @@ bool WorldManager::loadWorld(const std::string& worldPath,
         // WorldSave::load() уже вызвал chunkManager->configure(gp), поэтому параметры применены
         std::cout << "[LOAD] World loaded successfully from " << worldPath << " (name: " << worldName << ", seed: " << seed << ")" << std::endl;
         
+        // ЖЕСТКАЯ ПРИВЯЗКА: Проверяем и корректируем позицию игрока после загрузки
+        if (camera != nullptr) {
+            if (!worldSave->loadPlayer(worldPath, camera)) {
+                // Нет player.json → ставим игрока в безопасную точку
+                spawnPlayerSafely(camera, 0.0f, 0.0f, 3.0f, 512.0f);
+            } else {
+                // Есть player.json → подстрахуемся: если под водой/под землёй/на отвесе — поправим
+                spawnPlayerSafely(camera, camera->position.x, camera->position.z, 3.0f, 256.0f);
+            }
+        }
+        
         worldLoaded = true;
         currentWorldName = worldName;
         currentSeed = seed;
@@ -243,5 +259,68 @@ void WorldManager::unloadWorld() {
     worldLoaded = false;
     currentWorldPath = "";
     chunkManager->clear();
+}
+
+// Оценить крутизну склона в точке (x, z) - возвращает 0..1 (0 = ровно, 1 = отвес)
+static float estimateSlope01(ChunkManager* cm, float x, float z, float sample = 2.0f) {
+	float hC = cm->evalSurfaceHeight(x, z);
+	float hx = cm->evalSurfaceHeight(x + sample, z) - hC;
+	float hz = cm->evalSurfaceHeight(x, z + sample) - hC;
+	// угол к вертикали → 0..1
+	float slope = glm::clamp(std::sqrt(hx*hx + hz*hz) / (sample * 1.5f), 0.0f, 1.0f);
+	return slope;
+}
+
+void WorldManager::spawnPlayerSafely(Camera* camera, float preferX, float preferZ,
+                                     float heightOffset, float searchRadiusMeters) {
+	if (!camera || !chunkManager) return;
+	
+	// 1) Границы мира (в метрах) — чтобы не вылететь за край
+	const float worldMinX = static_cast<float>(chunkManager->getMinChunkX() * MCChunk::CHUNK_SIZE_X);
+	const float worldMaxX = static_cast<float>((chunkManager->getMaxChunkX() + 1) * MCChunk::CHUNK_SIZE_X - 1.0f);
+	const float worldMinZ = static_cast<float>(chunkManager->getMinChunkZ() * MCChunk::CHUNK_SIZE_Z);
+	const float worldMaxZ = static_cast<float>((chunkManager->getMaxChunkZ() + 1) * MCChunk::CHUNK_SIZE_Z - 1.0f);
+	
+	auto clampXZ = [&](float& x, float& z){
+		x = glm::clamp(x, worldMinX + 4.0f, worldMaxX - 4.0f);
+		z = glm::clamp(z, worldMinZ + 4.0f, worldMaxZ - 4.0f);
+	};
+	
+	float bestX = preferX, bestZ = preferZ;
+	clampXZ(bestX, bestZ);
+	
+	// 2) Критерии «хорошего места»
+	const float maxSlope = 0.6f; // 0..1, где 0 — ровно; 0.6 — уже крутовато
+	const float waterLevel = chunkManager->getWaterLevel();
+	
+	auto good = [&](float x, float z){
+		float h = chunkManager->evalSurfaceHeight(x, z);
+		if (h < waterLevel + 1.0f) return false;          // не под водой и не у самой кромки
+		if (estimateSlope01(chunkManager, x, z) > maxSlope) return false; // не на отвесе
+		return true;
+	};
+	
+	// 3) Спиральный поиск вокруг preferX/Z
+	if (!good(bestX, bestZ)) {
+		const float step = 8.0f; // метров между пробами
+		const int   rings = static_cast<int>(searchRadiusMeters / step);
+		bool found = false;
+		for (int r = 1; r <= rings && !found; ++r) {
+			for (int i = 0; i < 8 * r; ++i) { // дискретная спираль
+				float angle = (i / static_cast<float>(8*r)) * 2.0f * 3.14159265359f; // 2π
+				float x = preferX + r * step * std::cos(angle);
+				float z = preferZ + r * step * std::sin(angle);
+				clampXZ(x, z);
+				if (good(x, z)) { bestX = x; bestZ = z; found = true; break; }
+			}
+		}
+		// если не нашли — просто зажимаем к границе и берём, что есть
+	}
+	
+	// 4) Установить позицию
+	float h = chunkManager->evalSurfaceHeight(bestX, bestZ);
+	camera->position = glm::vec3(bestX, h + heightOffset, bestZ);
+	std::cout << "[SPAWN] Player at (" << bestX << "," << h+heightOffset << "," << bestZ
+	          << ") surface=" << h << " water=" << waterLevel << std::endl;
 }
 

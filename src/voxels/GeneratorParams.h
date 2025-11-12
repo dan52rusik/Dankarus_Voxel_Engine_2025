@@ -8,7 +8,7 @@ struct GeneratorParams {
 	float lacunarity = 2.0f;
 	float gain = 0.5f;
 	float baseHeight = 40.0f;
-	float heightVariation = 200.0f;
+	float heightVariation = 240.0f;  // 220-260 для выразительных долин/хребтов
 	float waterLevel = 38.0f; // baseHeight - 2.0f
 	int64_t seed = 1337;
 };

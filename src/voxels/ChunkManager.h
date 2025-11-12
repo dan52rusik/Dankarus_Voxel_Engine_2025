@@ -103,6 +103,18 @@ public:
 	// Сохранение/загрузка чанков
 	void setWorldSave(class WorldSave* worldSave, const std::string& worldPath); // Установить WorldSave и путь к миру для автосохранения
 	void saveDirtyChunks(); // Сохранить все измененные чанки (для выхода из мира)
+	void saveDirtyChunksBudgeted(int maxPerCall); // Сохранить измененные чанки с ограничением (для периодического вызова)
+	
+	// Границы мира (в координатах чанков)
+	void setWorldBoundsByMeters(int worldSizeXZ_Meters); // Установить границы мира в метрах (10к×10к)
+	inline bool isOutsideBounds(int cx, int cz) const {
+		return (cx < minChunkX || cx > maxChunkX || cz < minChunkZ || cz > maxChunkZ);
+	}
+	// Геттеры для границ мира (для использования в WorldManager)
+	int getMinChunkX() const { return minChunkX; }
+	int getMaxChunkX() const { return maxChunkX; }
+	int getMinChunkZ() const { return minChunkZ; }
+	int getMaxChunkZ() const { return maxChunkZ; }
 	
 private:
 	std::unordered_map<std::string, MCChunk*> chunks;
@@ -140,6 +152,13 @@ private:
 	
 	// Провайдер биомов из изображения (опционально)
 	class BiomeProviderFromImage* biomeProviderFromImage = nullptr;
+	
+	// Границы мира (в координатах чанков)
+	int minChunkX = -156, maxChunkX = 156;  // По умолчанию: 10к×10к (312 чанков по оси)
+	int minChunkZ = -156, maxChunkZ = 156;
+	
+	// Таймер для периодического сохранения
+	double lastSaveTime = 0.0;
 	
 	// Вспомогательные функции
 	std::string chunkKey(int cx, int cy, int cz) const;

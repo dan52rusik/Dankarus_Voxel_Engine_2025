@@ -179,13 +179,21 @@ void main() {
     vec3 N = normalize(a_normal);
     // Sanity-чек на нормали (на всякий случай)
     if (length(N) < 1e-5) N = vec3(0.0, 1.0, 0.0);
-    float slope = clamp(1.0 - abs(N.y), 0.0, 1.0);
+    float slope = 1.0 - clamp(dot(normalize(N), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
     
     float minH = u_baseHeight - u_heightVariation;
     float maxH = u_baseHeight + u_heightVariation;
     float h = clamp((a_worldPos.y - minH) / max(0.1, maxH - minH), 0.0, 1.0);
     
+    // Простой slope tint для выразительности формы (трава на склонах, камень на крутых)
+    vec3 grass = vec3(0.10, 0.30, 0.10);
+    vec3 rock  = vec3(0.25, 0.25, 0.22);
+    vec3 slopeTint = mix(grass, rock, smoothstep(0.35, 0.75, slope));
+    
     vec3 base = biomeColor(h, slope, N);
+    
+    // Применяем slope tint для усиления контраста склонов (40% влияния на крутых склонах)
+    base = mix(base, slopeTint, smoothstep(0.3, 0.7, slope) * 0.4);
     
     // Оттенки земли как в 7DTD
     DirtTintOut dt = makeDirtTint(N, h, a_worldPos.xz);

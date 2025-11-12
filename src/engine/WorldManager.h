@@ -34,6 +34,12 @@ public:
     const std::string& getCurrentWorldName() const { return currentWorldName; }
     int64_t getCurrentSeed() const { return currentSeed; }
     
+    // Найти безопасную точку и поставить камеру над террейном
+    // Проверяет: выше воды, не на отвесном склоне, в пределах границ мира
+    // Если предпочтительная точка плохая - ищет ближайшую безопасную по спирали
+    void spawnPlayerSafely(Camera* camera, float preferX = 0.0f, float preferZ = 0.0f,
+                           float heightOffset = 3.0f, float searchRadiusMeters = 512.0f);
+    
 private:
 	ChunkManager* chunkManager;
 	class DecoManager* decoManager;

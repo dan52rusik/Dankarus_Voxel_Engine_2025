@@ -46,7 +46,7 @@ static inline Warp domain_warp(OpenSimplex3D& noise, float x, float z, float bas
 	float wz = noise.fbm_norm((x + 37.7f) * wf, 0.0f, (z - 19.3f) * wf, 3, 2.1f, 0.55f);
 	
 	// Фикс по миру: 8..24 вокселей (не через обратную частоту!)
-	float maxWarp = 16.0f;     // было 12 → сделать заметнее для теста
+	float maxWarp = 14.0f;     // оптимально для выразительности (12-16)
 	return { wx * maxWarp, wz * maxWarp };
 }
 
