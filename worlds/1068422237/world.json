@@ -1,0 +1,26 @@
+{
+  "generator": "voxelnoxel:terrain",
+  "generator-params": {
+    "baseFreq": 0.00390625,
+    "baseHeight": 40,
+    "gain": 0.5,
+    "heightVariation": 200,
+    "lacunarity": 2,
+    "octaves": 5,
+    "waterLevel": 38
+  },
+  "name": "1068422237",
+  "seed": 1068422237,
+  "time": {
+    "day-time": 0.5,
+    "day-time-speed": 1,
+    "total-time": 0
+  },
+  "version": {
+    "major": 0,
+    "minor": 1
+  },
+  "weather": {
+    "fog": 0
+  }
+}

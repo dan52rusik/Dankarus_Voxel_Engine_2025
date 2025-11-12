@@ -8,6 +8,7 @@
 #include "voxels/WorldBuilder.h"
 #include "voxels/WaterSimulator.h"
 #include "voxels/WaterEvaporationManager.h"
+#include "voxels/GeneratorParams.h"
 #include "frontend/Menu.h"
 #include "files/files.h"
 #include "window/Camera.h"
@@ -38,14 +39,20 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
     
     // Очищаем старый мир, если был
     chunkManager->clear();
-    chunkManager->setSeed(seed);
-	chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
+    
+	// Используем единую структуру параметров GeneratorParams
+	GeneratorParams gp;
+	gp.baseFreq = baseFreq;
+	gp.octaves = octaves;
+	gp.lacunarity = lacunarity;
+	gp.gain = gain;
+	gp.baseHeight = baseHeight;
+	gp.heightVariation = heightVariation;
+	gp.waterLevel = baseHeight - 2.0f;  // Уровень воды чуть ниже базовой высоты
+	gp.seed = seed;
 	
-	// Устанавливаем уровень воды относительно базовой высоты (вода в низинах)
-	// Используем примерно 60-70% от baseHeight, чтобы вода была в низинах, но не слишком низко
-	float waterLevel = baseHeight * 0.65f;
-	chunkManager->setWaterLevel(waterLevel);
-	std::cout << "[WORLD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
+	// Конфигурируем ChunkManager единой структурой
+	chunkManager->configure(gp);
 	
 	// Устанавливаем WorldSave и путь к миру для автосохранения чанков
 	chunkManager->setWorldSave(worldSave, worldPath);
@@ -84,7 +91,8 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
     
     // Сохраняем мир сразу после создания, чтобы он появился в списке
     // camera передадим как nullptr, т.к. при создании мира камера еще не инициализирована
-    if (worldSave->save(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, nullptr)) {
+    // Сохраняем мир с параметрами из GeneratorParams
+    if (worldSave->save(worldPath, *chunkManager, worldName, gp.seed, gp.baseFreq, gp.octaves, gp.lacunarity, gp.gain, gp.baseHeight, gp.heightVariation, nullptr)) {
         std::cout << "[GAME] New world created and saved: name='" << worldName << "', seed=" << seed << ", path=" << worldPath << std::endl;
         menu->setSaveFileExists(true);
         menu->refreshWorldList();
@@ -147,17 +155,8 @@ bool WorldManager::loadWorld(const std::string& worldPath,
 	// При загрузке не генерируем заново, только инициализируем системы
 	
 	if (worldSave->load(worldPath, *chunkManager, worldName, seed, baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation, camera)) {
+        // WorldSave::load() уже вызвал chunkManager->configure(gp), поэтому параметры применены
         std::cout << "[LOAD] World loaded successfully from " << worldPath << " (name: " << worldName << ", seed: " << seed << ")" << std::endl;
-        std::cout << "[LOAD] Generator params: baseFreq=" << baseFreq << ", octaves=" << octaves 
-                  << ", lacunarity=" << lacunarity << ", gain=" << gain 
-                  << ", baseHeight=" << baseHeight << ", heightVariation=" << heightVariation << std::endl;
-        chunkManager->setSeed(seed);
-        chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
-        
-        // Устанавливаем уровень воды относительно базовой высоты
-        float waterLevel = baseHeight * 0.65f;
-        chunkManager->setWaterLevel(waterLevel);
-        std::cout << "[LOAD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
         
         worldLoaded = true;
         currentWorldName = worldName;
@@ -166,12 +165,17 @@ bool WorldManager::loadWorld(const std::string& worldPath,
         return true;
     } else {
         std::cout << "[LOAD] Failed to load world from " << worldPath << ", creating new world" << std::endl;
-        chunkManager->setNoiseParams(baseFreq, octaves, lacunarity, gain, baseHeight, heightVariation);
-        
-        // Устанавливаем уровень воды относительно базовой высоты
-        float waterLevel = baseHeight * 0.65f;
-        chunkManager->setWaterLevel(waterLevel);
-        std::cout << "[LOAD] Set water level to " << waterLevel << " (baseHeight=" << baseHeight << ")" << std::endl;
+        // Используем параметры по умолчанию через GeneratorParams
+        GeneratorParams gp;
+        gp.baseFreq = baseFreq;
+        gp.octaves = octaves;
+        gp.lacunarity = lacunarity;
+        gp.gain = gain;
+        gp.baseHeight = baseHeight;
+        gp.heightVariation = heightVariation;
+        gp.waterLevel = baseHeight - 2.0f;
+        gp.seed = seed;
+        chunkManager->configure(gp);
         
         worldLoaded = true;
         menu->setSaveFileExists(false);

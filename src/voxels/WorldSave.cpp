@@ -2,6 +2,7 @@
 #include "ChunkManager.h"
 #include "MCChunk.h"
 #include "voxel.h"
+#include "GeneratorParams.h"
 #include "utils/json_simple.h"
 #include "files/files.h"
 #include "window/Camera.h"
@@ -249,6 +250,9 @@ bool WorldSave::save(const std::string& worldPath, ChunkManager& chunkManager, c
 	worldJson["generator-params"]["gain"] = json_simple::Value(gain);
 	worldJson["generator-params"]["baseHeight"] = json_simple::Value(baseHeight);
 	worldJson["generator-params"]["heightVariation"] = json_simple::Value(heightVariation);
+	// Сохраняем waterLevel для согласованности
+	float waterLevel = chunkManager.getWaterLevel();
+	worldJson["generator-params"]["waterLevel"] = json_simple::Value(waterLevel);
 	
 #ifdef _WIN32
 	const char sep = '\\';
@@ -395,23 +399,38 @@ bool WorldSave::load(const std::string& worldPath, ChunkManager& chunkManager, s
 	seed = worldJson["seed"].getInt64(0);
 	
 	// Загружаем параметры генерации
+	GeneratorParams gp;
 	if (worldJson.has("generator-params")) {
 		json_simple::Value params = worldJson["generator-params"];
-		baseFreq = params["baseFreq"].getNumber(0.03f);
-		octaves = params["octaves"].getInt(4);
-		lacunarity = params["lacunarity"].getNumber(2.0f);
-		gain = params["gain"].getNumber(0.5f);
-		baseHeight = params["baseHeight"].getNumber(12.0f);
-		heightVariation = params["heightVariation"].getNumber(4.0f);
+		gp.baseFreq = params["baseFreq"].getNumber(1.0f / 256.0f);  // ПРАВИЛЬНО: float деление
+		gp.octaves = params["octaves"].getInt(5);
+		gp.lacunarity = params["lacunarity"].getNumber(2.0f);
+		gp.gain = params["gain"].getNumber(0.5f);
+		gp.baseHeight = params["baseHeight"].getNumber(40.0f);
+		gp.heightVariation = params["heightVariation"].getNumber(200.0f);
+		gp.waterLevel = params["waterLevel"].getNumber(gp.baseHeight - 2.0f);  // читаем из JSON или вычисляем
 	} else {
 		// Значения по умолчанию
-		baseFreq = 0.03f;
-		octaves = 4;
-		lacunarity = 2.0f;
-		gain = 0.5f;
-		baseHeight = 12.0f;
-		heightVariation = 4.0f;
+		gp.baseFreq = 1.0f / 256.0f;  // ПРАВИЛЬНО: float деление
+		gp.octaves = 5;
+		gp.lacunarity = 2.0f;
+		gp.gain = 0.5f;
+		gp.baseHeight = 40.0f;
+		gp.heightVariation = 200.0f;
+		gp.waterLevel = gp.baseHeight - 2.0f;
 	}
+	gp.seed = seed;
+	
+	// Возвращаем параметры через выходные параметры (для совместимости)
+	baseFreq = gp.baseFreq;
+	octaves = gp.octaves;
+	lacunarity = gp.lacunarity;
+	gain = gp.gain;
+	baseHeight = gp.baseHeight;
+	heightVariation = gp.heightVariation;
+	
+	// Применяем параметры через единую функцию configure()
+	chunkManager.configure(gp);
 	
 	// Загружаем player.json (если есть камера)
 	if (camera != nullptr) {

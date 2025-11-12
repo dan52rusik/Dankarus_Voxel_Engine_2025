@@ -6,6 +6,7 @@
 #include "noise/OpenSimplex.h"
 #include "HeightMapUtils.h"
 #include "BiomeDefinition.h"
+#include "GeneratorParams.h"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <string>
@@ -39,6 +40,9 @@ public:
 	void setSeed(int64_t seed); // Установить seed для генерации мира
 	void setWaterLevel(float waterLevel); // Установить базовый уровень воды (в мировых координатах)
 	float getWaterLevel() const { return waterLevel; }
+	
+	// Унифицированная конфигурация через GeneratorParams
+	void configure(const GeneratorParams& params);
 	
 	// Получить уровень воды в точке (x, z) с учетом типа водоема
 	// Возвращает уровень воды: море > озеро > река > суша

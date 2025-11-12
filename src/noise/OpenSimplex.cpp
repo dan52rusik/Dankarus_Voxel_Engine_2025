@@ -22,3 +22,18 @@ float OpenSimplex3D::fbm(float x, float y, float z, int octaves, float lacunarit
 	}
 	return sum;
 }
+
+// Нормализованный fBm: гарантированно [-1..1]
+float OpenSimplex3D::fbm_norm(float x, float y, float z, int octaves, float lacunarity, float gain) const {
+	float sum = 0.0f;
+	float amp = 1.0f;
+	float freq = 1.0f;
+	float norm = 0.0f;
+	for (int i = 0; i < octaves; i++) {
+		sum += amp * noise(x * freq, y * freq, z * freq);
+		norm += amp;
+		freq *= lacunarity;
+		amp *= gain;
+	}
+	return (norm > 0.0f) ? (sum / norm) : 0.0f; // гарантированно [-1..1]
+}

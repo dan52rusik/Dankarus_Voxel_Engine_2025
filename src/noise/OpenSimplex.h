@@ -11,8 +11,10 @@ public:
 	explicit OpenSimplex3D(int64_t seed);
 	// Single octave (использует OpenSimplex2S::Noise3_ImproveXY)
 	float noise(float x, float y, float z) const;
-	// Fractal Brownian Motion
+	// Fractal Brownian Motion (старая версия без нормализации)
 	float fbm(float x, float y, float z, int octaves, float lacunarity, float gain) const;
+	// Нормализованный Fractal Brownian Motion: гарантированно [-1..1]
+	float fbm_norm(float x, float y, float z, int octaves, float lacunarity, float gain) const;
 };
 
 #endif /* NOISE_OPENSIMPLEX_H_ */

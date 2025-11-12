@@ -23,6 +23,7 @@
 #include <cctype>
 #include <sstream>
 #include <fstream>
+#include <cfloat>  // для std::isfinite
 #ifdef _WIN32
 const char PATH_SEP = '\\';
 #else
@@ -30,15 +31,15 @@ const char PATH_SEP = '/';
 #endif
 
 ChunkManager::ChunkManager() 
-	: noise(1337), baseFreq(0.06f), octaves(6), lacunarity(2.0f), gain(0.5f), 
-	  baseHeight(50.0f), heightVariation(70.0f), waterLevel(8.0f), heightMap(nullptr),
+	: noise(1337), baseFreq(1.0f / 256.0f), octaves(5), lacunarity(2.0f), gain(0.5f), 
+	  baseHeight(40.0f), heightVariation(200.0f), waterLevel(38.0f), heightMap(nullptr),
 	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
 	// Параметры настроены для красивого и разнообразного ландшафта:
-	// - baseFreq = 0.06f - оптимальная частота для заметного рельефа внутри чанка
-	// - octaves = 6 - больше деталей для более интересного рельефа
-	// - baseHeight = 50.0f - средняя высота материка
-	// - heightVariation = 70.0f - большой размах для заметных холмов, долин и гор
-	// - waterLevel = 8.0f - уровень воды в низинах (будет переустановлен при создании мира)
+	// - baseFreq = 1.0f/256.0f - ПРАВИЛЬНО: float деление, не int!
+	// - octaves = 5 - оптимально для деталей без перегрузки
+	// - baseHeight = 40.0f - уровень моря
+	// - heightVariation = 200.0f - большой размах для заметных холмов, долин и гор
+	// - waterLevel = 38.0f - уровень воды (baseHeight - 2.0f, будет переустановлен при создании мира)
 	// Террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
 	// Биомы определяются по температуре и влажности для более реалистичного распределения
 }
@@ -547,55 +548,145 @@ void ChunkManager::setWaterLevel(float waterLevel) {
 	this->waterLevel = waterLevel;
 }
 
-// Вычислить высоту поверхности в точке (wx, wz) используя ту же формулу, что и в генерации террейна
+// Унифицированная конфигурация через GeneratorParams
+void ChunkManager::configure(const GeneratorParams& p) {
+	baseFreq = p.baseFreq;
+	octaves = p.octaves;
+	lacunarity = p.lacunarity;
+	gain = p.gain;
+	baseHeight = p.baseHeight;
+	heightVariation = p.heightVariation;
+	waterLevel = p.waterLevel;
+	setSeed(p.seed);
+	std::cout << "[GEN] baseFreq=" << baseFreq << " oct=" << octaves << " lac=" << lacunarity
+	          << " gain=" << gain << " baseH=" << baseHeight << " var=" << heightVariation
+	          << " water=" << waterLevel << " seed=" << p.seed << std::endl;
+}
+
+// Утилиты для evalSurfaceHeight
+namespace {
+	// remap [-1..1] -> [0..1]
+	inline float remap01(float v) { return 0.5f * (v + 1.0f); }
+	
+	// ridge из [-1..1]
+	inline float ridge(float v) { return 1.0f - std::fabs(v); }
+	
+	// Мягкие террасы
+	inline float smooth_terrace(float h, float steps, float sharp) {
+		float t = std::floor(h * steps) / steps;
+		float f = (h * steps - std::floor(h * steps));
+		float s = glm::smoothstep(0.0f, 1.0f, f);
+		return glm::mix(h, glm::mix(t, t + 1.0f / steps, s), sharp);
+	}
+	
+	// Domain warp структура
+	struct Warp {
+		float dx, dz;
+	};
+	
+	// Безопасный domain warp
+	inline Warp domain_warp(const OpenSimplex3D& noise, float x, float z, float baseFreq) {
+		float wf = baseFreq * 0.25f;  // warp частота ниже базовой (в 4 раза)
+		float wx = noise.fbm_norm(x * wf, 0.0f, z * wf, 3, 2.1f, 0.55f);
+		float wz = noise.fbm_norm((x + 37.7f) * wf, 0.0f, (z - 19.3f) * wf, 3, 2.1f, 0.55f);
+		// Фикс по миру: 8..24 вокселей (не через обратную частоту!)
+		float maxWarp = 16.0f;     // было 12 → сделать заметнее для теста
+		return { wx * maxWarp, wz * maxWarp };
+	}
+}
+
+// Вычислить высоту поверхности в точке (wx, wz) используя правильную композицию слоев
 float ChunkManager::evalSurfaceHeight(float wx, float wz) const {
-	// 1) Domain warping — «кривим» входные координаты, чтобы исчезла регулярность FBM
-	float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
-	float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
-	float warpAmp = 40.0f; // Увеличено для более интересных изгибов рельефа
-	float wxw = wx + w1 * warpAmp;
-	float wzw = wz + w2 * warpAmp;
+	// Страховка от кривых рук: проверка валидности baseFreq
+	if (baseFreq <= 0.0f || !std::isfinite(baseFreq)) {
+		// fallback, чтобы не получить «плоский мир»
+		return baseHeight;
+	}
 	
-	// 2) Континентальность (очень низкая частота) — задаёт большие области суши/впадин
-	float continents = 0.5f * noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f) + 0.5f;
-	// «поднимаем» материки и немного притапливаем впадины
-	float continentBias = glm::mix(-0.7f, 0.7f, continents);  // Увеличено для более выраженных континентов
+	// Убеждаемся, что координаты float
+	float wx_f = static_cast<float>(wx);
+	float wz_f = static_cast<float>(wz);
 	
-	// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
-	float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, octaves, lacunarity, gain); // -1..1
+	float seaLevel = baseHeight;
+	float heightScale = heightVariation;
 	
-	// 4) Средне-высокочастотная полоса (для дополнительного разнообразия)
-	float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.5f; // Усилено
+	// 1) Безопасный domain warp
+	Warp w = domain_warp(noise, wx_f, wz_f, baseFreq);
+	float x = wx_f + w.dx;
+	float z = wz_f + w.dz;
 	
-	// 5) Ридж-мультифрактал (острые хребты/скалы) - более заметные горы
-	auto ridge = [](float n) { n = 1.0f - std::fabs(n); return n * n; };
-	float ridgesFBM = noise.fbm(wxw * baseFreq * 0.5f, 0.0f, wzw * baseFreq * 0.5f, 4, 2.0f, 0.5f); // -1..1
-	float ridges = ridge(ridgesFBM);  // 0..1
-	// Делаем горы более заметными
-	ridges = std::max(0.0f, ridges - 0.2f) * 1.5f; // Усилено для более выраженных гор
+	// 2) Континенты (низкая частота) - шире окно
+	float cont = noise.fbm_norm(x * baseFreq * 0.25f, 0.0f, z * baseFreq * 0.25f, 4, 2.0f, 0.5f);
 	
-	// 6) Детальки (мелкие формы) - усиленные для заметности внутри чанка
-	float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.7f; // Усилено
+	// БЫСТРЫЙ ЧЕК: что шум реально меняется
+	static bool noiseProbeOnce = false;
+	if (!noiseProbeOnce) {
+		float cA = cont;
+		float cB = noise.fbm_norm((x + 100.0f) * baseFreq * 0.25f, 0.0f, z * baseFreq * 0.25f, 4, 2.0f, 0.5f);
+		float cC = noise.fbm_norm(x * baseFreq * 0.25f, 0.0f, (z + 100.0f) * baseFreq * 0.25f, 4, 2.0f, 0.5f);
+		std::cout << "[NOISE_PROBE] cont: A=" << cA << " B=" << cB << " C=" << cC << " baseFreq=" << baseFreq << std::endl;
+		noiseProbeOnce = true;
+	}
 	
-	// 7) Склеиваем: материки -> холмы -> средние -> хребты -> детали.
-	//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
-	float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
-	float combined =
-		hills * 0.6f
-		+ midNoise                                    // Средне-высокочастотная полоса
-		+ (ridges * 2.0f - 1.0f) * (1.0f * ridgeWeight)   // Горы с большим весом
-		+ details                                     // Усиленные детали
-		+ continentBias;                              // большой макро-тренд
+	float cont01 = glm::smoothstep(-0.35f, 0.35f, cont); // было -0.25..0.45 → перекос
 	
-	// 8) Курация амплитуды и опциональные «террасы»
-	combined = glm::clamp(combined, -1.3f, 1.3f); // Расширен диапазон
-	float remapped = 0.5f * combined + 0.5f; // remap01
-	float t = std::floor(remapped * 8.0f) / 8.0f; // Больше террас
-	float shaped = glm::mix(remapped, t, 0.2f); // Меньше террас для более плавного рельефа
-	shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
+	// 3) Холмы (средняя частота)
+	float hills = noise.fbm_norm(x * baseFreq * 0.6f, 0.0f, z * baseFreq * 0.6f, 5, 2.0f, 0.5f);
+	hills = remap01(hills);
 	
-	// 9) Высота поверхности
-	return baseHeight + shaped * heightVariation;
+	// 4) Риджи (гребни)
+	float rsrc = noise.fbm_norm(x * baseFreq * 0.35f, 0.0f, z * baseFreq * 0.35f, 4, 2.1f, 0.5f);
+	float ridg = glm::clamp((ridge(rsrc) - 0.2f) * 1.4f, 0.0f, 1.0f);
+	
+	// 5) Детали (высокие частоты) - не душим полностью вне гребней
+	float det = noise.fbm_norm(x * baseFreq * 1.8f, 0.0f, z * baseFreq * 1.8f, 3, 2.2f, 0.5f);
+	det = det * det; // подавить мелкий шум внизу
+	float detWeight = glm::mix(0.05f, 1.0f, glm::smoothstep(0.45f, 0.8f, ridg)); // оставь хвост
+	
+	// 6) Смешивание слоёв по маскам - усилить риджи для выразительности
+	float hillsWeight = glm::mix(0.40f, 0.55f, cont01);   // немного ослабить холмы
+	float ridgWeight = glm::mix(0.35f, 0.65f, cont01);   // усилить риджи (было 0.25..0.55)
+	float h01 = glm::clamp(
+		hillsWeight * hills +
+		ridgWeight * ridg +
+		detWeight * (det * 0.25f),
+		0.0f, 1.0f);
+	
+	// 7) Мягкие террасы - мягче и выше порог
+	float terraceSharp = glm::smoothstep(0.6f, 0.92f, h01) * 0.35f; // мягче и выше порог (было 0.45f)
+	h01 = smooth_terrace(h01, 9.0f, terraceSharp); // steps 8-10, НЕ ниже 6
+	
+	// 8) Высота в метрах (или вокселях)
+	float height = seaLevel + h01 * heightScale;
+	
+	// ДИАГНОСТИКА: выводим min/max h01 для проверки диапазона
+	static float hmin = 1e9f, hmax = -1e9f;
+	static int debugCount = 0;
+	static int callCount = 0;
+	callCount++;
+	hmin = std::min(hmin, h01);
+	hmax = std::max(hmax, h01);
+	if (debugCount < 1 && callCount >= 1000) {  // выводим после 1000 вызовов для статистики
+		std::cout << "[HEIGHT_DEBUG] h01 min=" << hmin << " max=" << hmax 
+		          << " range=" << (hmax - hmin) << " baseFreq=" << baseFreq << std::endl;
+		debugCount++;
+	}
+	
+	// ДИАГНОСТИКА: сечения высоты для проверки макро-формы
+	static int probeCount = 0;
+	probeCount++;
+	if (probeCount == 1) {
+		// Выводим высоты в разных точках для проверки разброса
+		// Используем const_cast для вызова не-const функции (evalSurfaceHeight не изменяет состояние)
+		float h00 = evalSurfaceHeight(0.0f, 0.0f);
+		float h512_0 = evalSurfaceHeight(512.0f, 0.0f);
+		float h0_512 = evalSurfaceHeight(0.0f, 512.0f);
+		float h512_512 = evalSurfaceHeight(512.0f, 512.0f);
+		std::cout << "[H_PROBES] (0,0)=" << h00 << " (512,0)=" << h512_0 
+		          << " (0,512)=" << h0_512 << " (512,512)=" << h512_512 << std::endl;
+	}
+	
+	return height;
 }
 
 BiomeDefinition::BiomeType ChunkManager::getBiomeAt(float wx, float wz) const {

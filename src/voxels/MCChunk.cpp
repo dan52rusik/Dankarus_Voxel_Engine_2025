@@ -4,11 +4,13 @@
 #include "WaterUtils.h"
 #include "PrefabManager.h"
 #include "Path.h"
+#include "noise/OpenSimplex.h"
 #include <vector>
 #include <iostream>
 #include <glm/glm.hpp>
 #include <cmath>
 #include <algorithm>
+#include <cfloat>  // для std::isfinite
 
 // ============ Утилиты для генерации террейна ============
 
@@ -23,10 +25,46 @@ static inline float ridge(float n) {
 	return n * n;                   // усиливаем вершины
 }
 
-// террасы (опционально, даёт «ступеньки» скал). intensity ~ [0..1]
-static inline float terrace(float h, float steps = 6.0f, float intensity = 0.35f) {
+// Мягкие террасы с плавной притяжкой (вместо жесткого квантования)
+static inline float smooth_terrace(float h, float steps, float sharp) {
+	// h∈[0..1], soft террасы: квантование с плавной притяжкой
 	float t = std::floor(h * steps) / steps;
-	return glm::mix(h, t, intensity);
+	float f = (h * steps - std::floor(h * steps));
+	float s = glm::smoothstep(0.0f, 1.0f, f);
+	return glm::mix(h, glm::mix(t, t + 1.0f / steps, s), sharp); // sharp∈[0..1]
+}
+
+// Структура для domain warp
+struct Warp {
+	float dx, dz;
+};
+
+// Безопасный domain warp (низкочастотный и ограниченный)
+static inline Warp domain_warp(OpenSimplex3D& noise, float x, float z, float baseFreq) {
+	float wf = baseFreq * 0.25f;     // warp частота ниже базовой (в 4 раза)
+	float wx = noise.fbm_norm(x * wf, 0.0f, z * wf, 3, 2.1f, 0.55f);
+	float wz = noise.fbm_norm((x + 37.7f) * wf, 0.0f, (z - 19.3f) * wf, 3, 2.1f, 0.55f);
+	
+	// Фикс по миру: 8..24 вокселей (не через обратную частоту!)
+	float maxWarp = 16.0f;     // было 12 → сделать заметнее для теста
+	return { wx * maxWarp, wz * maxWarp };
+}
+
+// Мягкий порог для плотности Marching Cubes
+static inline float density_from_height(float y, float h, float isoLevel, float softness) {
+	// isoLevel ~ 0 (поверхность). Плотность >0 — твёрдое
+	float d = (h - y) - isoLevel;
+	// мягкая «S»-образная компрессия вокруг 0
+	float k = glm::clamp(std::fabs(d) / softness, 0.0f, 1.0f);
+	float s = d * (0.5f + 0.5f * k); // меньше резких скачков
+	return s;
+}
+
+// Мягкий min для пещер (soft union/subtract)
+static inline float smin(float a, float b, float k) {
+	// мягкий min (k — ширина сглаживания)
+	float h = glm::clamp(0.5f + 0.5f * (b - a) / k, 0.0f, 1.0f);
+	return glm::mix(b, a, h) - k * h * (1.0f - h);
 }
 
 MCChunk::MCChunk(int cx, int cy, int cz) 
@@ -93,9 +131,6 @@ void MCChunk::setVoxel(int lx, int ly, int lz, uint8_t id) {
 void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation) {
 	// ВАЖНО: не проверяем generated здесь, чтобы можно было перегенерировать чанк
 	// (например, при изменении параметров генерации)
-	// if (generated) {
-	// 	return;
-	// }
 	
 	// Очищаем воду при регенерации (опционально)
 	if (waterData != nullptr && generated) {
@@ -111,88 +146,93 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 	
 	densityField.resize(SX * SY * SZ);
 	
+	// Параметры для мягкого порога плотности
+	const float softness = 0.6f; // старт: 0.6, не больше 0.75
+	const float isoLevel = 0.05f; // чуть положительный, чтобы поверхность не тонула
+	
 	// Генерируем поле плотности для этого чанка
 	// ВАЖНО: используем одинаковые мировые координаты для всех чанков,
 	// чтобы значения на границах совпадали
 	for (int y = 0; y < SY; y++) {
 		for (int z = 0; z < SZ; z++) {
 			for (int x = 0; x < SX; x++) {
-				// Мировые координаты точки
-				// Используем точные мировые координаты, чтобы значения на границах совпадали
-				float wx = (float)(chunkPos.x * CHUNK_SIZE_X + x);
-				float wy = (float)(chunkPos.y * CHUNK_SIZE_Y + y);
-				float wz = (float)(chunkPos.z * CHUNK_SIZE_Z + z);
+				// Мировые координаты точки - УБЕДИСЬ ЧТО FLOAT!
+				float wx = static_cast<float>(chunkPos.x * CHUNK_SIZE_X + x);
+				float wy = static_cast<float>(chunkPos.y * CHUNK_SIZE_Y + y);
+				float wz = static_cast<float>(chunkPos.z * CHUNK_SIZE_Z + z);
 				
-				// Вычисляем высоту поверхности в точке (x, z) используя улучшенную систему генерации
-				// ВАЖНО: используем те же мировые координаты, что и в соседних чанках
+				// Страховка от кривых рук: проверка валидности baseFreq
+				if (baseFreq <= 0.0f || !std::isfinite(baseFreq)) {
+					// fallback, чтобы не получить «плоский мир»
+					float density = density_from_height(wy, baseHeight, isoLevel, softness);
+					densityField[(y * SZ + z) * SX + x] = density;
+					continue;
+				}
 				
-				// 1) Domain warping — «кривим» входные координаты, чтобы исчезла регулярность FBM
-				float w1 = noise.fbm(wx * 0.008f, 0.0f, wz * 0.008f, 3, 2.0f, 0.5f);
-				float w2 = noise.fbm(wx * 0.008f + 100.0f, 0.0f, wz * 0.008f + 100.0f, 3, 2.0f, 0.5f);
-				float warpAmp = 35.0f; // насколько «гнём» координаты (в мировых юнитах)
-				float wxw = wx + w1 * warpAmp;
-				float wzw = wz + w2 * warpAmp;
+				// Вычисляем высоту поверхности используя правильную композицию
+				float seaLevel = baseHeight;
+				float heightScale = heightVariation;
 				
-				// 2) Континентальность (очень низкая частота) — задаёт большие области суши/впадин
-				float continents = remap01(noise.fbm(wx * 0.0015f, 0.0f, wz * 0.0015f, 2, 2.0f, 0.5f));
-				// «поднимаем» материки и немного притапливаем впадины
-				float continentBias = glm::mix(-0.6f, 0.6f, continents);  // [-0.6..0.6]
+				// 1) Безопасный domain warp
+				Warp w = domain_warp(noise, wx, wz, baseFreq);
+				float xw = wx + w.dx;
+				float zw = wz + w.dz;
 				
-				// 3) Базовый FBM (мягкие холмы) — уже по варпнутым координатам
-				// Используем baseFreq для масштабирования частот
-				float hills = noise.fbm(wxw * baseFreq, 0.0f, wzw * baseFreq, 5, 2.0f, 0.5f); // -1..1
+				// 2) Континенты (низкая частота) - шире окно
+				float cont = noise.fbm_norm(xw * baseFreq * 0.25f, 0.0f, zw * baseFreq * 0.25f, 4, 2.0f, 0.5f);
+				float cont01 = glm::smoothstep(-0.35f, 0.35f, cont); // было -0.25..0.45 → перекос
 				
-				// 4) Средне-высокочастотная полоса (для дополнительного разнообразия)
-				float midNoise = noise.fbm(wxw * baseFreq * 1.5f, 0.0f, wzw * baseFreq * 1.5f, 3, 2.0f, 0.5f) * 0.4f; // -1..1
+				// 3) Холмы (средняя частота)
+				float hills = noise.fbm_norm(xw * baseFreq * 0.6f, 0.0f, zw * baseFreq * 0.6f, 5, 2.0f, 0.5f);
+				hills = remap01(hills);
 				
-				// 5) Ридж-мультифрактал (острые хребты/скалы) - более заметные горы
-				float ridgesFBM = noise.fbm(wxw * baseFreq * 0.5f, 0.0f, wzw * baseFreq * 0.5f, 4, 2.0f, 0.5f); // -1..1
-				float ridges = ridge(ridgesFBM);  // 0..1
-				// Делаем горы более заметными
-				ridges = std::max(0.0f, ridges - 0.25f) * 1.2f; // Усиливаем только высокие значения
+				// 4) Риджи (гребни)
+				float rsrc = noise.fbm_norm(xw * baseFreq * 0.35f, 0.0f, zw * baseFreq * 0.35f, 4, 2.1f, 0.5f);
+				float ridg = glm::clamp((ridge(rsrc) - 0.2f) * 1.4f, 0.0f, 1.0f);
 				
-				// 6) Детальки (мелкие формы) - усиленные для заметности внутри чанка
-				float details = noise.fbm(wxw * baseFreq * 3.5f, 0.0f, wzw * baseFreq * 3.5f, 3, 2.0f, 0.5f) * 0.6f; // -1..1
+				// 5) Детали (высокие частоты) - не душим полностью вне гребней
+				float det = noise.fbm_norm(xw * baseFreq * 1.8f, 0.0f, zw * baseFreq * 1.8f, 3, 2.2f, 0.5f);
+				det = det * det; // подавить мелкий шум внизу
+				float detWeight = glm::mix(0.05f, 1.0f, glm::smoothstep(0.45f, 0.8f, ridg)); // оставь хвост
 				
-				// 7) Склеиваем: материки -> холмы -> средние -> хребты -> детали.
-				//    Вес хребтов растёт на «краях континентов» (там интереснее рельеф)
-				float ridgeWeight = glm::smoothstep(0.25f, 0.85f, continents); // 0..1
-				float combined =
-					hills * 0.65f
-					+ midNoise                                    // Средне-высокочастотная полоса
-					+ (ridges * 2.0f - 1.0f) * (0.9f * ridgeWeight)   // Горы с большим весом
-					+ details                                     // Усиленные детали
-					+ continentBias;                              // большой макро-тренд
+				// 6) Смешивание слоёв по маскам - усилить риджи для выразительности
+				float hillsWeight = glm::mix(0.40f, 0.55f, cont01);  // немного ослабить холмы
+				float ridgWeight = glm::mix(0.35f, 0.65f, cont01);  // усилить риджи (было 0.25..0.55)
+				float h01 = glm::clamp(
+					hillsWeight * hills +
+					ridgWeight * ridg +
+					detWeight * (det * 0.25f),
+					0.0f, 1.0f);
 				
-				// 8) Курация амплитуды и опциональные «террасы»
-				combined = glm::clamp(combined, -1.2f, 1.2f);
-				float shaped = terrace(remap01(combined), 7.0f, 0.25f);    // 0..1 с лёгкими ступенями
-				shaped = shaped * 2.0f - 1.0f;                             // обратно в [-1..1]
+				// 7) Мягкие террасы - мягче и выше порог
+				float terraceSharp = glm::smoothstep(0.6f, 0.92f, h01) * 0.35f; // мягче и выше порог (было 0.45f)
+				h01 = smooth_terrace(h01, 9.0f, terraceSharp); // steps 8-10, НЕ ниже 6
 				
-				// 9) Высота поверхности
-				float surfaceHeight = baseHeight + shaped * heightVariation;
+				// 8) Высота поверхности
+				float surfaceHeight = seaLevel + h01 * heightScale;
 				
-				// 10) Плотность (как и раньше)
-				float density = surfaceHeight - wy;
+				// 9) Плотность с мягким порогом (вместо резкого)
+				float density = density_from_height(wy, surfaceHeight, isoLevel, softness);
 				
 				densityField[(y * SZ + z) * SX + x] = density;
 				
-				// Отладочный вывод для первых нескольких точек (чтобы проверить параметры)
-				static int debugTerrainCount = 0;
-				if (debugTerrainCount < 5 && x == 0 && z == 0) {
-					std::cout << "[TERRAIN] baseHeight=" << baseHeight 
-					          << " heightVariation=" << heightVariation
-					          << " continents=" << continents
-					          << " combined=" << combined
-					          << " shaped=" << shaped
-					          << " surfaceHeight=" << surfaceHeight << std::endl;
-					debugTerrainCount++;
+				// ДИАГНОСТИКА: выводим min/max h01 для проверки диапазона
+				static float hmin = 1e9f, hmax = -1e9f;
+				static int debugCount = 0;
+				static int callCount = 0;
+				callCount++;
+				hmin = std::min(hmin, h01);
+				hmax = std::max(hmax, h01);
+				if (debugCount < 1 && callCount >= 1000) {  // выводим после 1000 вызовов для статистики
+					std::cout << "[HEIGHT_DEBUG] h01 min=" << hmin << " max=" << hmax 
+					          << " range=" << (hmax - hmin) << " baseFreq=" << baseFreq << std::endl;
+					debugCount++;
 				}
 			}
 		}
 	}
 	
-	// Удаляем старый меш перед созданием нового (исправление утечки памяти)
+	// Удаляем старый меш перед созданием нового
 	if (mesh != nullptr) {
 		delete mesh;
 		mesh = nullptr;
@@ -202,11 +242,11 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 	generated = true;
 	
-	// ДИАГНОСТИКА: выводим информацию о генерации
+	// ДИАГНОСТИКА
 	static int debugGenerateCount = 0;
 	if (debugGenerateCount < 3) {
 		std::cout << "[TERRAIN_GEN] Generated chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
-		          << ") with NEW terrain system (domain warping, continents, ridges, terraces)" << std::endl;
+		          << ") with FIXED terrain system (normalized fbm, safe warp, masked blending, soft terraces, soft density)" << std::endl;
 		debugGenerateCount++;
 	}
 }
@@ -229,6 +269,10 @@ void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
 	
 	densityField.resize(SX * SY * SZ);
 	
+	// Параметры для мягкого порога плотности
+	const float softness = 0.6f; // старт: 0.6, не больше 0.75
+	const float isoLevel = 0.05f; // чуть положительный, чтобы поверхность не тонула
+	
 	// Вычисляем мировую позицию чанка
 	int chunkWorldX = chunkPos.x * CHUNK_SIZE_X;
 	int chunkWorldY = chunkPos.y * CHUNK_SIZE_Y;
@@ -245,16 +289,16 @@ void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
 			// Вычисляем высоту поверхности один раз для этой точки (x, z)
 			float surfaceHeight = evalSurfaceHeight(wx, wz);
 			
-			// Проставляем плотность для всех y по этой высоте
+			// Проставляем плотность для всех y по этой высоте с мягким порогом
 			for (int y = 0; y < SY; y++) {
 				float wy = static_cast<float>(chunkWorldY + y);
-				float density = surfaceHeight - wy;
+				float density = density_from_height(wy, surfaceHeight, isoLevel, softness);
 				densityField[(y * SZ + z) * SX + x] = density;
 			}
 		}
 	}
 	
-	// Удаляем старый меш перед созданием нового (исправление утечки памяти)
+	// Удаляем старый меш перед созданием нового
 	if (mesh != nullptr) {
 		delete mesh;
 		mesh = nullptr;
@@ -264,11 +308,11 @@ void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
 	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 	generated = true;
 	
-	// ДИАГНОСТИКА: выводим информацию о генерации
+	// ДИАГНОСТИКА
 	static int debugOptimizedCount = 0;
 	if (debugOptimizedCount < 3) {
 		std::cout << "[TERRAIN_GEN] Generated chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
-		          << ") with OPTIMIZED terrain system (callback-based, ~32x faster)" << std::endl;
+		          << ") with OPTIMIZED terrain system (callback-based, soft density threshold)" << std::endl;
 		debugOptimizedCount++;
 	}
 }

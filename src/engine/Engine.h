@@ -63,12 +63,12 @@ public:
     // Параметры (legacy, будут заменены на settings)
     int WIDTH = 1280;
     int HEIGHT = 720;
-    float baseFreq = 0.03f;
-    int octaves = 4;
+    float baseFreq = 1.0f / 256.0f;  // ПРАВИЛЬНО: float деление
+    int octaves = 5;
     float lacunarity = 2.0f;
     float gain = 0.5f;
-    float baseHeight = 12.0f;
-    float heightVariation = 4.0f;
+    float baseHeight = 40.0f;
+    float heightVariation = 200.0f;
     int seed = 1337;
     int renderDistance = 3;
     float speed = 5.0f;

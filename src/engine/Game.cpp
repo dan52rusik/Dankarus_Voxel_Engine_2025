@@ -149,12 +149,12 @@ void Game::handleMenuActions() {
             // ИСПОЛЬЗУЕМ ДЕФОЛТНЫЕ ПАРАМЕТРЫ ГЕНЕРАЦИИ для нового мира
             // Это гарантирует, что новый мир будет создан с правильными параметрами,
             // а не с параметрами из предыдущего загруженного мира
-            float defaultBaseFreq = 0.03f;
-            int defaultOctaves = 4;
+            float defaultBaseFreq = 1.0f / 256.0f;   // 0.00390625 - ПРАВИЛЬНО: float деление
+            int defaultOctaves = 5;
             float defaultLacunarity = 2.0f;
             float defaultGain = 0.5f;
-            float defaultBaseHeight = 12.0f;
-            float defaultHeightVariation = 4.0f;
+            float defaultBaseHeight = 40.0f;
+            float defaultHeightVariation = 200.0f;
             
             if (worldManager->createWorld(worldName, seed,
                                           defaultBaseFreq, defaultOctaves, defaultLacunarity, defaultGain,
