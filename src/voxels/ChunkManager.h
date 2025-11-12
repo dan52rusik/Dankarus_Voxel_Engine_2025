@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <deque>
 #include <limits>
 #include <memory>
 
@@ -28,8 +29,8 @@ public:
 	// Обновляет видимые чанки вокруг камеры
 	void update(const glm::vec3& cameraPos, int renderDistance);
 	
-	// Получить все видимые чанки для отрисовки
-	std::vector<MCChunk*> getVisibleChunks() const;
+	// Получить все видимые чанки для отрисовки (кэшированный список, без копирования)
+	const std::vector<MCChunk*>& getVisibleChunks() const { return visibleChunksCache; }
 	
 	// Получить все загруженные чанки (для сохранения)
 	std::vector<MCChunk*> getAllChunks() const;
@@ -82,6 +83,12 @@ public:
 	
 	// Получить чанк по ключу (для внутреннего использования)
 	MCChunk* getChunk(const std::string& chunkKey) const;
+	
+	// Получить чанк по координатам чанка (быстрый доступ для поиска соседей)
+	MCChunk* getChunk(int cx, int cy, int cz) const;
+	
+	// Доступ к очереди пересборки мешей (для Game.cpp)
+	std::deque<MCChunk*>& getMeshBuildQueue() { return meshBuildQueue; }
 	
 	// Работа с высотными картами
 	void setHeightMap(const std::string& filepath); // Загрузить высотную карту из файла (PNG/RAW)
@@ -159,6 +166,12 @@ private:
 	
 	// Таймер для периодического сохранения
 	double lastSaveTime = 0.0;
+	
+	// Кэш видимых чанков (обновляется в update())
+	mutable std::vector<MCChunk*> visibleChunksCache;
+	
+	// Очередь для пересборки мешей (с бюджетом)
+	std::deque<MCChunk*> meshBuildQueue;
 	
 	// Вспомогательные функции
 	std::string chunkKey(int cx, int cy, int cz) const;

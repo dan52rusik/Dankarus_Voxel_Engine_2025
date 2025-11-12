@@ -440,31 +440,79 @@ void Game::updateWorld(float delta) {
         lightingSystem->updateLighting(camera->position, engine->renderDistance);
     }
     
-    // Пересобираем меши вокселей для измененных чанков
-    std::vector<MCChunk*> visibleChunks = chunkManager->getVisibleChunks();
-    for (MCChunk* chunk : visibleChunks) {
-        if (chunk->voxelMeshModified) {
-            // Удаляем старый меш
-            if (chunk->voxelMesh != nullptr) {
-                delete chunk->voxelMesh;
-                chunk->voxelMesh = nullptr;
-            }
-            
-            // Собираем соседние чанки для face culling
-            MCChunk* nearbyChunks[27] = {nullptr};
-            for (MCChunk* other : visibleChunks) {
-                glm::ivec3 diff = other->chunkPos - chunk->chunkPos;
-                if (std::abs(diff.x) <= 1 && std::abs(diff.y) <= 1 && std::abs(diff.z) <= 1) {
-                    int index = (diff.y + 1) * 9 + (diff.z + 1) * 3 + (diff.x + 1);
-                    nearbyChunks[index] = other;
+    // Пересобираем меши вокселей для измененных чанков (с бюджетом)
+    const auto& visibleChunks = chunkManager->getVisibleChunks();
+    const int meshBudget = 2; // чанка за кадр
+    int built = 0;
+    
+    // Обрабатываем очередь пересборки мешей
+    auto& meshBuildQueue = chunkManager->getMeshBuildQueue();
+    while (built < meshBudget && !meshBuildQueue.empty()) {
+        MCChunk* chunk = meshBuildQueue.front();
+        meshBuildQueue.pop_front();
+        
+        if (!chunk->voxelMeshModified) continue;
+        if (chunk->generated == false) continue; // Чанк был удален
+        
+        // Удаляем старый меш
+        if (chunk->voxelMesh != nullptr) {
+            delete chunk->voxelMesh;
+            chunk->voxelMesh = nullptr;
+        }
+        
+        // Собираем соседние чанки для face culling (быстрый доступ через getChunk)
+        MCChunk* nearbyChunks[27] = {nullptr};
+        int idx = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    nearbyChunks[idx++] = chunkManager->getChunk(
+                        chunk->chunkPos.x + dx,
+                        chunk->chunkPos.y + dy,
+                        chunk->chunkPos.z + dz
+                    );
                 }
             }
-            
-            // Генерируем новый меш с системой освещения
-            lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
-            chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
-            chunk->voxelMeshModified = false;
         }
+        
+        // Генерируем новый меш с системой освещения
+        lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
+        chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
+        chunk->voxelMeshModified = false;
+        ++built;
+    }
+    
+    // Также обрабатываем чанки из visibleChunks, которые были изменены, но не попали в очередь
+    for (MCChunk* chunk : visibleChunks) {
+        if (built >= meshBudget) break;
+        if (!chunk->voxelMeshModified) continue;
+        
+        // Удаляем старый меш
+        if (chunk->voxelMesh != nullptr) {
+            delete chunk->voxelMesh;
+            chunk->voxelMesh = nullptr;
+        }
+        
+        // Собираем соседние чанки для face culling (быстрый доступ через getChunk)
+        MCChunk* nearbyChunks[27] = {nullptr};
+        int idx = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    nearbyChunks[idx++] = chunkManager->getChunk(
+                        chunk->chunkPos.x + dx,
+                        chunk->chunkPos.y + dy,
+                        chunk->chunkPos.z + dz
+                    );
+                }
+            }
+        }
+        
+        // Генерируем новый меш с системой освещения
+        lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
+        chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
+        chunk->voxelMeshModified = false;
+        ++built;
     }
 }
 
@@ -601,7 +649,7 @@ void Game::renderWorld() {
     
     // Собираем все лампы (блоки с id=2) из видимых чанков
     std::vector<LightCPU> frameLights;
-    std::vector<MCChunk*> visibleChunks = chunkManager->getVisibleChunks();
+    const auto& visibleChunks = chunkManager->getVisibleChunks();
     
     // Собираем лампы из видимых чанков
     for (MCChunk* chunk : visibleChunks) {

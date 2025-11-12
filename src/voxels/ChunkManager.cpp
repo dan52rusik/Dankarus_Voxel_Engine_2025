@@ -25,6 +25,8 @@
 #include <fstream>
 #include <cfloat>  // для std::isfinite
 #include <ctime>   // для time()
+#include <algorithm> // для std::sort
+#include <deque>     // для meshBuildQueue
 #ifdef _WIN32
 const char PATH_SEP = '\\';
 #else
@@ -54,6 +56,8 @@ void ChunkManager::clear() {
 		delete pair.second;
 	}
 	chunks.clear();
+	visibleChunksCache.clear();
+	meshBuildQueue.clear();
 }
 
 std::string ChunkManager::chunkKey(int cx, int cy, int cz) const {
@@ -298,6 +302,8 @@ bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
 	chunk->generated = true;
 	chunk->dirty = false; // Загруженный чанк не грязный
 	chunk->voxelMeshModified = true; // Гарантируем пересборку меша блоков
+	// Добавляем в очередь пересборки мешей
+	meshBuildQueue.push_back(chunk);
 	
 	std::cout << "[CHUNK] load " << cx << "," << cy << "," << cz
 	          << " <- " << chunkPath << " blocks=" << numBlocks << std::endl;
@@ -542,6 +548,29 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
 		if (issued >= budgetPerFrame) break;
 	}
 	
+	// Обновляем кэш видимых чанков
+	visibleChunksCache.clear();
+	for (auto& kv : chunks) {
+		MCChunk* c = kv.second;
+		if (!c->generated || c->mesh == nullptr) continue;
+		
+		glm::ivec3 d = c->chunkPos - cc;
+		int dist = std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});
+		if (dist > renderDistance) continue; // защита от далеких чанков
+		
+		visibleChunksCache.push_back(c);
+	}
+	
+	// Опционально — отсортировать по расстоянию для красивой подгрузки
+	std::sort(visibleChunksCache.begin(), visibleChunksCache.end(),
+	          [cc](MCChunk* a, MCChunk* b){
+	              glm::ivec3 da = a->chunkPos - cc;
+	              glm::ivec3 db = b->chunkPos - cc;
+	              int ra = std::max({std::abs(da.x), std::abs(da.y), std::abs(da.z)});
+	              int rb = std::max({std::abs(db.x), std::abs(db.y), std::abs(db.z)});
+	              return ra < rb;
+	          });
+	
 	// Выгружаем далекие чанки
 	unloadDistantChunks(cameraPos, renderDistance);
 	
@@ -570,14 +599,9 @@ MCChunk* ChunkManager::getChunk(const std::string& chunkKey) const {
 	return nullptr;
 }
 
-std::vector<MCChunk*> ChunkManager::getVisibleChunks() const {
-	std::vector<MCChunk*> visible;
-	for (const auto& pair : chunks) {
-		if (pair.second->generated && pair.second->mesh != nullptr) {
-			visible.push_back(pair.second);
-		}
-	}
-	return visible;
+MCChunk* ChunkManager::getChunk(int cx, int cy, int cz) const {
+	auto it = chunks.find(chunkKey(cx, cy, cz));
+	return (it == chunks.end()) ? nullptr : it->second;
 }
 
 std::vector<MCChunk*> ChunkManager::getAllChunks() const {
@@ -1005,6 +1029,21 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 		}
 	}
 	
+	// Добавляем чанк в очередь пересборки мешей (если еще не добавлен)
+	if (chunk->voxelMeshModified) {
+		// Проверяем, нет ли уже в очереди
+		bool alreadyInQueue = false;
+		for (auto* queued : meshBuildQueue) {
+			if (queued == chunk) {
+				alreadyInQueue = true;
+				break;
+			}
+		}
+		if (!alreadyInQueue) {
+			meshBuildQueue.push_back(chunk);
+		}
+	}
+	
 	// Проверяем, что блок установился
 	voxel* checkVox = chunk->getVoxel(lx, ly, lz);
 	if (checkVox == nullptr || checkVox->id != id) {
@@ -1013,47 +1052,63 @@ void ChunkManager::setVoxel(int x, int y, int z, uint8_t id) {
 		          << ") local(" << lx << ", " << ly << ", " << lz << ") id=" << (int)id << std::endl;
 	}
 	
-	// Помечаем соседние чанки как измененные, если блок на границе
+	// Добавляем соседние чанки в очередь пересборки мешей (если блок на границе)
+	auto addToQueue = [this](MCChunk* c) {
+		if (c && c->voxelMeshModified) {
+			// Проверяем, нет ли уже в очереди
+			bool alreadyInQueue = false;
+			for (auto* queued : meshBuildQueue) {
+				if (queued == c) {
+					alreadyInQueue = true;
+					break;
+				}
+			}
+			if (!alreadyInQueue) {
+				meshBuildQueue.push_back(c);
+			}
+		}
+	};
+	
 	if (lx == 0) {
-		std::string neighborKey = chunkKey(chunkPos.x - 1, chunkPos.y, chunkPos.z);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x - 1, chunkPos.y, chunkPos.z);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 	if (lx == MCChunk::CHUNK_SIZE_X - 1) {
-		std::string neighborKey = chunkKey(chunkPos.x + 1, chunkPos.y, chunkPos.z);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x + 1, chunkPos.y, chunkPos.z);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 	if (ly == 0) {
-		std::string neighborKey = chunkKey(chunkPos.x, chunkPos.y - 1, chunkPos.z);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x, chunkPos.y - 1, chunkPos.z);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 	if (ly == MCChunk::CHUNK_SIZE_Y - 1) {
-		std::string neighborKey = chunkKey(chunkPos.x, chunkPos.y + 1, chunkPos.z);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x, chunkPos.y + 1, chunkPos.z);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 	if (lz == 0) {
-		std::string neighborKey = chunkKey(chunkPos.x, chunkPos.y, chunkPos.z - 1);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x, chunkPos.y, chunkPos.z - 1);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 	if (lz == MCChunk::CHUNK_SIZE_Z - 1) {
-		std::string neighborKey = chunkKey(chunkPos.x, chunkPos.y, chunkPos.z + 1);
-		auto neighborIt = chunks.find(neighborKey);
-		if (neighborIt != chunks.end()) {
-			neighborIt->second->voxelMeshModified = true;
+		MCChunk* neighbor = getChunk(chunkPos.x, chunkPos.y, chunkPos.z + 1);
+		if (neighbor) {
+			neighbor->voxelMeshModified = true;
+			addToQueue(neighbor);
 		}
 	}
 }
