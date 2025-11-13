@@ -34,8 +34,12 @@ void WaterData::clear() {
 }
 
 bool WaterData::hasActiveWater() const {
-	for (bool active : activeVoxels) {
-		if (active) return true;
+	// Проверяем не только активные воксели, но и любую массу > 0
+	// Это позволяет воде оставаться "живой" даже при низких массах
+	for (size_t i = 0; i < activeVoxels.size(); ++i) {
+		if (activeVoxels[i] || voxelData[i] > 0) {
+			return true;
+		}
 	}
 	return false;
 }

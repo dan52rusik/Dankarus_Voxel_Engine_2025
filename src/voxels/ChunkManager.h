@@ -27,7 +27,8 @@ public:
 	~ChunkManager();
 	
 	// Обновляет видимые чанки вокруг камеры
-	void update(const glm::vec3& cameraPos, int renderDistance);
+	// deltaTime используется для симуляции воды (должен быть передан из игрового цикла)
+	void update(const glm::vec3& cameraPos, int renderDistance, float deltaTime = 0.016f);
 	
 	// Получить все видимые чанки для отрисовки (кэшированный список, без копирования)
 	const std::vector<MCChunk*>& getVisibleChunks() const { return visibleChunksCache; }
@@ -123,6 +124,11 @@ public:
 	int getMinChunkZ() const { return minChunkZ; }
 	int getMaxChunkZ() const { return maxChunkZ; }
 	
+	// Работа с чанками с водой (для WaterSimulator)
+	const std::vector<MCChunk*>& getChunksWithWater() const { return chunksWithWater; }
+	void addChunkWithWater(MCChunk* chunk);
+	void removeChunkWithWater(MCChunk* chunk);
+	
 private:
 	std::unordered_map<std::string, MCChunk*> chunks;
 	OpenSimplex3D noise;
@@ -172,6 +178,9 @@ private:
 	
 	// Очередь для пересборки мешей (с бюджетом)
 	std::deque<MCChunk*> meshBuildQueue;
+	
+	// Список чанков с водой (для оптимизации симуляции)
+	std::vector<MCChunk*> chunksWithWater;
 	
 	// Вспомогательные функции
 	std::string chunkKey(int cx, int cy, int cz) const;

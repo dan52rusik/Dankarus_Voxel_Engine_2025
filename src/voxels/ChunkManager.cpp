@@ -58,6 +58,7 @@ void ChunkManager::clear() {
 	chunks.clear();
 	visibleChunksCache.clear();
 	meshBuildQueue.clear();
+	chunksWithWater.clear();
 }
 
 std::string ChunkManager::chunkKey(int cx, int cy, int cz) const {
@@ -383,6 +384,11 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 	// Помечаем меш воды для пересборки после генерации
 	chunk->waterMeshModified = true;
 	
+	// Добавляем чанк в список чанков с водой (если там есть вода)
+	if (chunk->waterData && chunk->waterData->hasActiveWater()) {
+		addChunkWithWater(chunk);
+	}
+	
 	// Добавляем декорации из DecoManager
 	if (decoManager != nullptr) {
 		std::vector<DecoObject> decos;
@@ -419,6 +425,26 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 	chunks[key] = chunk;
 }
 
+void ChunkManager::addChunkWithWater(MCChunk* chunk) {
+	if (!chunk) return;
+	
+	// Проверяем, нет ли уже в списке (используем std::find для эффективности)
+	auto it = std::find(chunksWithWater.begin(), chunksWithWater.end(), chunk);
+	if (it == chunksWithWater.end()) {
+		chunksWithWater.push_back(chunk);
+	}
+}
+
+void ChunkManager::removeChunkWithWater(MCChunk* chunk) {
+	if (!chunk) return;
+	
+	// Удаляем из списка
+	chunksWithWater.erase(
+		std::remove(chunksWithWater.begin(), chunksWithWater.end(), chunk),
+		chunksWithWater.end()
+	);
+}
+
 void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDistance) {
 	glm::ivec3 cameraChunk = worldToChunk(cameraPos);
 	
@@ -428,8 +454,8 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 	const int yRadius = 1; // Только текущий уровень и соседние по Y
 	
 	// Удаляем чанки, которые слишком далеко от камеры
-	auto it = chunks.begin();
-	while (it != chunks.end()) {
+	// ВАЖНО: используем безопасный паттерн итерации с правильным обновлением итератора
+	for (auto it = chunks.begin(); it != chunks.end(); ) {
 		MCChunk* chunk = it->second;
 		glm::ivec3 chunkPos = chunk->chunkPos;
 		
@@ -437,18 +463,38 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 		int dx = chunkPos.x - cameraChunk.x;
 		int dy = chunkPos.y - cameraChunk.y;
 		int dz = chunkPos.z - cameraChunk.z;
-		int dist = std::max({std::abs(dx), std::abs(dz)}); // По X/Z
+		int distXZ = std::max(std::abs(dx), std::abs(dz)); // По X/Z
+		int distY = std::abs(dy);
 		
-		// Также проверяем Y (если слишком далеко по вертикали)
-		bool tooFarY = std::abs(dy) > yRadius + 1;
+		// Проверяем, слишком ли далеко
+		bool tooFar = (distXZ > unloadDistance) || (distY > yRadius + 1);
 		
-		if (dist > unloadDistance || tooFarY) {
-			// Сохраняем чанк перед удалением только если он был изменен и не только что сгенерирован
+		if (tooFar) {
+			// 1. Убираем чанк из всех вспомогательных контейнеров ПЕРЕД удалением
+			removeChunkWithWater(chunk);
+			
+			// Убрать из meshBuildQueue
+			meshBuildQueue.erase(
+				std::remove(meshBuildQueue.begin(), meshBuildQueue.end(), chunk),
+				meshBuildQueue.end()
+			);
+			
+			// Убрать из visibleChunksCache (если там есть)
+			visibleChunksCache.erase(
+				std::remove(visibleChunksCache.begin(), visibleChunksCache.end(), chunk),
+				visibleChunksCache.end()
+			);
+			
+			// 2. Сохраняем чанк перед удалением (если нужно)
 			if (chunk->generated && chunk->dirty) {
 				saveChunk(chunk);
 				chunk->dirty = false;
 			}
+			
+			// 3. Удаляем сам чанк
 			delete chunk;
+			
+			// 4. Стереть из map ПРАВИЛЬНО (обновляем итератор)
 			it = chunks.erase(it);
 		} else {
 			++it;
@@ -517,7 +563,7 @@ static void ringOrder(int R, std::vector<glm::ivec3>& out, int cy, int yRadius) 
 	}
 }
 
-void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
+void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance, float deltaTime) {
 	glm::ivec3 cc = worldToChunk(cameraPos);
 	
 	// Только 3 уровня по высоте: текущий, над и под
@@ -548,7 +594,19 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
 		if (issued >= budgetPerFrame) break;
 	}
 	
-	// Обновляем кэш видимых чанков
+	// Обновляем симуляцию воды ПЕРЕД выгрузкой чанков
+	// (чтобы вода успела обработать чанки до их удаления)
+	if (waterSimulator != nullptr) {
+		waterSimulator->Update(deltaTime);
+	}
+	if (waterEvaporationManager != nullptr) {
+		waterEvaporationManager->Update(deltaTime);
+	}
+	
+	// Выгружаем далекие чанки (ПОСЛЕ симуляции воды, но ДО обновления кэша)
+	unloadDistantChunks(cameraPos, renderDistance);
+	
+	// Обновляем кэш видимых чанков ПОСЛЕ выгрузки (чтобы не было мёртвых указателей)
 	visibleChunksCache.clear();
 	for (auto& kv : chunks) {
 		MCChunk* c = kv.second;
@@ -570,9 +628,6 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance) {
 	              int rb = std::max({std::abs(db.x), std::abs(db.y), std::abs(db.z)});
 	              return ra < rb;
 	          });
-	
-	// Выгружаем далекие чанки
-	unloadDistantChunks(cameraPos, renderDistance);
 	
 	// Периодическое сохранение (раз в 2 секунды)
 	double currentTime = static_cast<double>(std::time(nullptr));

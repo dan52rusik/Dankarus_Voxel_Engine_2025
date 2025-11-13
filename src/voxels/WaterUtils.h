@@ -13,7 +13,7 @@ namespace WaterUtils {
 	
 	// Константы для воды
 	static constexpr int WATER_MASS_MAX = 255;      // Максимальная масса воды
-	static constexpr int WATER_MASS_ACTIVE = 195;   // Порог для активной воды (выше этого значения вода активна)
+	static constexpr int WATER_MASS_ACTIVE = 30;   // Порог для активной воды (выше этого значения вода активна) - понижен для более живой симуляции
 	static constexpr int WATER_MASS_MIN = 0;        // Минимальная масса (нет воды)
 	
 	// Получить уровень воды из массы (0 или 1)

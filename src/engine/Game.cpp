@@ -429,11 +429,8 @@ void Game::updateWorld(float delta) {
     VoxelRenderer* voxelRenderer = engine->getVoxelRenderer();
     lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
     
-    // Обновляем чанки вокруг камеры
-    chunkManager->update(camera->position, engine->renderDistance);
-    
-    // Обновляем симуляцию воды
-    chunkManager->updateWaterSimulation(delta);
+    // Обновляем чанки вокруг камеры (симуляция воды вызывается внутри update() перед выгрузкой чанков)
+    chunkManager->update(camera->position, engine->renderDistance, delta);
     
     // Обновляем освещение вокруг камеры
     if (lightingSystem != nullptr) {
@@ -454,14 +451,14 @@ void Game::updateWorld(float delta) {
         if (!chunk->voxelMeshModified) continue;
         if (chunk->generated == false) continue; // Чанк был удален
         
-        // Удаляем старый меш
-        if (chunk->voxelMesh != nullptr) {
-            delete chunk->voxelMesh;
-            chunk->voxelMesh = nullptr;
-        }
-        
+            // Удаляем старый меш
+            if (chunk->voxelMesh != nullptr) {
+                delete chunk->voxelMesh;
+                chunk->voxelMesh = nullptr;
+            }
+            
         // Собираем соседние чанки для face culling (быстрый доступ через getChunk)
-        MCChunk* nearbyChunks[27] = {nullptr};
+            MCChunk* nearbyChunks[27] = {nullptr};
         int idx = 0;
         for (int dy = -1; dy <= 1; ++dy) {
             for (int dz = -1; dz <= 1; ++dz) {
@@ -472,13 +469,13 @@ void Game::updateWorld(float delta) {
                         chunk->chunkPos.z + dz
                     );
                 }
+                }
             }
-        }
-        
-        // Генерируем новый меш с системой освещения
-        lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
-        chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
-        chunk->voxelMeshModified = false;
+            
+            // Генерируем новый меш с системой освещения
+            lighting::LightingSystem* lightingSystem = engine->getLightingSystem();
+            chunk->voxelMesh = voxelRenderer->render(chunk, nearbyChunks, lightingSystem);
+            chunk->voxelMeshModified = false;
         ++built;
     }
     
