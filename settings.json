@@ -23,6 +23,6 @@
     "fogDistance": 10,
     "fogEnabled": true,
     "fov": 100,
-    "renderDistance": 5
+    "renderDistance": 20
   }
 }

@@ -16,6 +16,7 @@ class Camera;
 class WorldSave;
 class VoxelRenderer;
 class WaterRenderer;
+class FarWaterRenderer;
 class Frustum;
 class WorldManager;
 
@@ -45,6 +46,7 @@ public:
     Batch2D* getBatch() const { return batch; }
     VoxelRenderer* getVoxelRenderer() const { return voxelRenderer; }
     WaterRenderer* getWaterRenderer() const { return waterRenderer; }
+    FarWaterRenderer* getFarWaterRenderer() const { return farWaterRenderer; }
     Menu* getMenu() const { return menu; }
     ChunkManager* getChunkManager() const { return chunkManager; }
     Camera* getCamera() const { return camera; }
@@ -108,6 +110,7 @@ private:
     Batch2D* batch = nullptr;
     VoxelRenderer* voxelRenderer = nullptr;
     WaterRenderer* waterRenderer = nullptr;
+    class FarWaterRenderer* farWaterRenderer = nullptr;
     
     // Системы
     Menu* menu = nullptr;

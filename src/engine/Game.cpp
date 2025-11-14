@@ -26,6 +26,7 @@
 #include "maths/FrustumCulling.h"
 #include "graphics/VoxelRenderer.h"
 #include "graphics/WaterRenderer.h"
+#include "graphics/FarWaterRenderer.h"
 #include "voxels/WaterData.h"
 #include "voxels/WaterUtils.h"
 #include "lighting/LightingSystem.h"
@@ -267,17 +268,23 @@ void Game::handleInput(float delta) {
     }
     
     // Движение камеры
+    // ИСПРАВЛЕНО: добавляем ускорение на Shift (x5)
+    float currentSpeed = engine->speed;
+    if (Events::pressed(GLFW_KEY_LEFT_SHIFT) || Events::pressed(GLFW_KEY_RIGHT_SHIFT)) {
+        currentSpeed *= 5.0f;  // Ускорение в 5 раз при зажатом Shift
+    }
+    
     if (Events::pressed(GLFW_KEY_W)) {
-        camera->position += camera->front * delta * engine->speed;
+        camera->position += camera->front * delta * currentSpeed;
     }
     if (Events::pressed(GLFW_KEY_S)) {
-        camera->position -= camera->front * delta * engine->speed;
+        camera->position -= camera->front * delta * currentSpeed;
     }
     if (Events::pressed(GLFW_KEY_D)) {
-        camera->position -= camera->right * delta * engine->speed;
+        camera->position -= camera->right * delta * currentSpeed;
     }
     if (Events::pressed(GLFW_KEY_A)) {
-        camera->position += camera->right * delta * engine->speed;
+        camera->position += camera->right * delta * currentSpeed;
     }
     
     // Вращение камеры
@@ -809,6 +816,43 @@ void Game::renderWorld() {
     // Используем шейдер для воды
     Shader* waterShader = engine->getWaterShader();
     WaterRenderer* waterRenderer = engine->getWaterRenderer();
+    FarWaterRenderer* farWaterRenderer = engine->getFarWaterRenderer();
+    
+    // ИСПРАВЛЕНО: рендерим дальний океан-плоскость перед обычной водой
+    // Это заполняет горизонт там, где нет прогруженных чанков
+    if (farWaterRenderer != nullptr && waterShader != nullptr) {
+        waterShader->use();
+        waterShader->uniformMatrix("projview", projview);
+        waterShader->uniformMatrix("u_view", camera->getView());
+        waterShader->uniform3f("u_skyLightColor", 1.0f, 1.0f, 1.0f);
+        
+        // Передаем направленный свет от солнца
+        waterShader->uniform3f("u_lightDir", lightDir.x, lightDir.y, lightDir.z);
+        waterShader->uniform3f("u_sunColor", 1.0f, 1.0f, 1.0f);
+        
+        // Передаем точечные источники света
+        waterShader->uniform1i("u_lightCount", nLights);
+        for (int i = 0; i < nLights; i++) {
+            std::string posName = "u_lights[" + std::to_string(i) + "].pos";
+            std::string colorName = "u_lights[" + std::to_string(i) + "].color";
+            std::string radiusName = "u_lights[" + std::to_string(i) + "].radius";
+            waterShader->uniform3f(posName, frameLights[i].pos.x, frameLights[i].pos.y, frameLights[i].pos.z);
+            waterShader->uniform3f(colorName, frameLights[i].color.x, frameLights[i].color.y, frameLights[i].color.z);
+            waterShader->uniform1f(radiusName, frameLights[i].radius);
+        }
+        
+        // Убеждаемся, что текстура правильно привязана
+        glActiveTexture(GL_TEXTURE0);
+        texture->bind();
+        waterShader->uniform1i("u_texture0", 0);
+        
+        // Получаем уровень воды из ChunkManager
+        float waterLevel = chunkManager->getWaterLevel();
+        
+        // Рендерим дальний океан (модель-матрица устанавливается внутри render)
+        farWaterRenderer->render(waterLevel, waterShader);
+    }
+    
     if (waterRenderer != nullptr && waterShader != nullptr) {
         waterShader->use();
         waterShader->uniformMatrix("projview", projview);

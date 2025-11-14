@@ -66,8 +66,10 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
 	
 	// Создаём и инициализируем менеджер декораций
 	decoManager = new DecoManager();
+	// ВРЕМЕННО ОТКЛЮЧЕНО: генерация декораций замедляет загрузку мира
+	// decoManager->isEnabled = false; // Отключаем генерацию декораций
 	// Размеры мира для декораций: 10к×10к
-	decoManager->onWorldLoaded(worldSize, worldSize, chunkManager, worldPath, seed);
+	// decoManager->onWorldLoaded(worldSize, worldSize, chunkManager, worldPath, seed);
 	chunkManager->setDecoManager(decoManager);
 	
 	// Создаём и инициализируем WorldBuilder для генерации дорог, озер и префабов
@@ -88,7 +90,7 @@ bool WorldManager::createWorld(const std::string& worldName, int64_t seed,
 	// Генерируем элементы мира
 	std::cout << "[WORLDBUILDER] Starting world generation..." << std::endl;
 	worldBuilder->GenerateRoads(5, 20);  // 5 шоссе, 20 проселочных дорог
-	worldBuilder->GenerateWaterFeatures(10, 5);  // 10 озер, 5 рек
+	worldBuilder->GenerateWaterFeatures(80, 0);  // ИСПРАВЛЕНО: 80 озер (было 10), 0 рек - больше озёр для видимости
 	worldBuilder->GeneratePrefabs(50);  // 50 префабов
 	std::cout << "[WORLDBUILDER] World generation completed!" << std::endl;
 	
@@ -146,6 +148,12 @@ bool WorldManager::loadWorld(const std::string& worldPath,
 	}
 	worldBuilder = new WorldBuilder(chunkManager);
 	worldBuilder->Initialize(worldWidth, seed);
+	
+	// ВАЖНО: пересоздаём waterMap так же, как при создании мира
+	// Иначе в загруженном мире waterMap пустой и озёра не создаются
+	std::cout << "[WORLDBUILDER] Regenerating water features for loaded world..." << std::endl;
+	worldBuilder->GenerateWaterFeatures(80, 0);  // Те же параметры, что и в createWorld
+	
 	// Передаем WorldBuilder в ChunkManager для применения модификаций при генерации чанков
 	chunkManager->setWorldBuilder(worldBuilder);
 	

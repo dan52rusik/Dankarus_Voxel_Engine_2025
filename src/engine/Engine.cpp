@@ -15,6 +15,7 @@
 #include "graphics/Batch2D.h"
 #include "graphics/VoxelRenderer.h"
 #include "graphics/WaterRenderer.h"
+#include "graphics/FarWaterRenderer.h"
 #include "voxels/ChunkManager.h"
 #include "voxels/WorldSave.h"
 #include "frontend/Menu.h"
@@ -66,6 +67,7 @@ bool Engine::initialize() {
     frustum = new Frustum();
     voxelRenderer = new VoxelRenderer(1024 * 1024 * 8);
     waterRenderer = new WaterRenderer(1024 * 1024 * 4); // Меньший буфер для воды
+    farWaterRenderer = new FarWaterRenderer(); // Рендерер для дальнего океана
     worldManager = new WorldManager(chunkManager, worldSave, menu);
     lightingSystem = new lighting::LightingSystem();
     lightingSystem->initialize(chunkManager);
@@ -200,6 +202,7 @@ void Engine::shutdown() {
     if (frustum) delete frustum;
     if (voxelRenderer) delete voxelRenderer;
     if (waterRenderer) delete waterRenderer;
+    if (farWaterRenderer) delete farWaterRenderer;
     
     Events::finalize();
     Window::terminate();

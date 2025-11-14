@@ -79,8 +79,6 @@ public:
 	class WaterEvaporationManager* getWaterEvaporationManager() const { return waterEvaporationManager; }
 	void setWaterEvaporationManager(class WaterEvaporationManager* manager) { waterEvaporationManager = manager; }
 	
-	// Обновить симуляцию воды (вызывается из игрового цикла)
-	void updateWaterSimulation(float deltaTime);
 	
 	// Получить чанк по ключу (для внутреннего использования)
 	MCChunk* getChunk(const std::string& chunkKey) const;

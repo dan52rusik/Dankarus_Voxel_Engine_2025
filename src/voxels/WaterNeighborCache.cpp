@@ -109,7 +109,8 @@ bool WaterNeighborCache::TryGetMass(glm::ivec2 xzOffset, int& mass) {
 		return false;
 	}
 	
-	if (!neighborChunk || !neighborChunk->waterData) {
+	// Проверяем валидность чанка перед использованием
+	if (!neighborChunk || !neighborChunk->generated || !neighborChunk->waterData) {
 		return false;
 	}
 	
@@ -125,7 +126,8 @@ bool WaterNeighborCache::TryGetMassY(int yOffset, int& mass) {
 		return false;
 	}
 	
-	if (!neighborChunk || !neighborChunk->waterData) {
+	// Проверяем валидность чанка перед использованием
+	if (!neighborChunk || !neighborChunk->generated || !neighborChunk->waterData) {
 		return false;
 	}
 	
@@ -141,7 +143,8 @@ WaterVoxelState WaterNeighborCache::GetNeighborState(glm::ivec2 xzOffset) {
 		return WaterVoxelState();
 	}
 	
-	if (!neighborChunk || !neighborChunk->waterData) {
+	// Проверяем валидность чанка перед использованием
+	if (!neighborChunk || !neighborChunk->generated || !neighborChunk->waterData) {
 		return WaterVoxelState();
 	}
 	
@@ -156,7 +159,8 @@ WaterVoxelState WaterNeighborCache::GetNeighborStateY(int yOffset) {
 		return WaterVoxelState();
 	}
 	
-	if (!neighborChunk || !neighborChunk->waterData) {
+	// Проверяем валидность чанка перед использованием
+	if (!neighborChunk || !neighborChunk->generated || !neighborChunk->waterData) {
 		return WaterVoxelState();
 	}
 	
@@ -171,7 +175,7 @@ std::string WaterNeighborCache::GetChunkKey(int cx, int cy, int cz) const {
 }
 
 MCChunk* WaterNeighborCache::GetNeighborChunk(int dx, int dy, int dz) {
-	if (!centerChunk) {
+	if (!centerChunk || !centerChunk->generated) {
 		return nullptr;
 	}
 	
@@ -182,7 +186,13 @@ MCChunk* WaterNeighborCache::GetNeighborChunk(int dx, int dy, int dz) {
 	std::string key = GetChunkKey(neighborCX, neighborCY, neighborCZ);
 	auto it = chunkMap.find(key);
 	if (it != chunkMap.end()) {
-		return it->second;
+		MCChunk* chunk = it->second;
+		// Проверяем, что чанк всё ещё валиден (не был удалён)
+		if (chunk && chunk->generated) {
+			return chunk;
+		}
+		// Если чанк был удалён, удаляем его из кэша
+		chunkMap.erase(it);
 	}
 	
 	return nullptr;

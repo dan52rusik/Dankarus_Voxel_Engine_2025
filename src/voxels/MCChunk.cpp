@@ -2,6 +2,7 @@
 #include "graphics/MarchingCubes.h"
 #include "WaterData.h"
 #include "WaterUtils.h"
+#include "WaterConstants.h"
 #include "PrefabManager.h"
 #include "Path.h"
 #include "noise/OpenSimplex.h"
@@ -342,6 +343,13 @@ void MCChunk::generateWater(std::function<float(int, int)> getWaterLevelFunc) {
 			// Получаем уровень воды для этой точки
 			float localWaterLevel = getWaterLevelFunc(worldX, worldZ);
 			
+			// ДИАГНОСТИКА: выводим информацию только для первых 5 точек (уменьшено для производительности)
+			static int debugWaterLevelCallCount = 0;
+			if (debugWaterLevelCallCount < 5) {
+				std::cout << "[WATER_GEN] getWaterLevelFunc(" << worldX << ", " << worldZ << ") = " << localWaterLevel << std::endl;
+				debugWaterLevelCallCount++;
+			}
+			
 			// Если уровень воды не определен (суша), пропускаем
 			if (localWaterLevel < -100.0f) {
 				continue;
@@ -389,9 +397,21 @@ void MCChunk::generateWater(std::function<float(int, int)> getWaterLevelFunc) {
 					// Вычисляем мировую Y координату
 					float wy = chunkWorldY + y;
 					
-					// Если эта точка ниже или на уровне воды, заполняем водой
-					if (wy <= localWaterLevel) {
-						waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+					// ИСПРАВЛЕНО: заполняем водой только до уровня воды (не ниже), чтобы избежать водопадов
+					// Вода должна быть на одном уровне, а не стекать вниз
+					if (wy <= localWaterLevel && wy >= localWaterLevel - 1.0f) {
+						// Заполняем только воксели на уровне воды или чуть ниже (1 единица)
+						// Это создаст плоскую поверхность озера вместо вертикальных столбов
+						int waterMass = WaterUtils::WATER_MASS_MAX;
+						// Если мы чуть ниже уровня воды, уменьшаем массу для плавного перехода
+						if (wy < localWaterLevel) {
+							float fraction = localWaterLevel - wy;
+							waterMass = static_cast<int>(WaterUtils::WATER_MASS_MAX * fraction);
+							if (waterMass < WaterConstants::MIN_MASS) {
+								continue; // Пропускаем слишком тонкие слои
+							}
+						}
+						waterData->setVoxelMass(x, y, z, waterMass);
 						waterData->setVoxelActive(x, y, z);
 						waterCount++;
 					}
@@ -400,12 +420,30 @@ void MCChunk::generateWater(std::function<float(int, int)> getWaterLevelFunc) {
 			
 			// Отладочный вывод для первых нескольких точек с водой
 			static int debugWaterCount = 0;
-			if (debugWaterCount < 5 && waterCount > 0) {
+			if (debugWaterCount < 10 && waterCount > 0) {
 				std::cout << "[WATER] Added " << waterCount << " water voxels at (" << worldX << ", " << worldZ 
-				          << ") level=" << localWaterLevel << std::endl;
+				          << ") level=" << localWaterLevel << " chunkY=" << chunkWorldY << std::endl;
 				debugWaterCount++;
 			}
 		}
+	}
+	
+	// ДИАГНОСТИКА: проверяем, есть ли вода после генерации
+	if (waterData && waterData->hasActiveWater()) {
+		// Подсчитываем количество вокселей с водой для диагностики
+		int waterVoxelCount = 0;
+		for (int i = 0; i < CHUNK_VOL; i++) {
+			if (waterData->getVoxelMass(i) > 0) {
+				waterVoxelCount++;
+			}
+		}
+		std::cout << "[WATER_DEBUG] Water EXISTS in chunk "
+		          << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z
+		          << " after generateWater() - " << waterVoxelCount << " water voxels" << std::endl;
+	} else {
+		std::cout << "[WATER_DEBUG] NO water in chunk "
+		          << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z
+		          << " after generateWater()" << std::endl;
 	}
 	
 	// Помечаем меш воды для пересборки
@@ -481,7 +519,8 @@ void MCChunk::applyWorldBuilderModifications(
 	const std::vector<uint8_t>& roadMap,
 	const std::vector<float>& waterMap,
 	int worldSize,
-	void* prefabManagerPtr) {
+	void* prefabManagerPtr,
+	float baseWaterLevel) {
 	
 	if (roadMap.empty() && waterMap.empty() && prefabManagerPtr == nullptr) {
 		return; // Нет данных для применения
@@ -549,46 +588,86 @@ void MCChunk::applyWorldBuilderModifications(
 				int worldX = chunkWorldX + x;
 				int worldZ = chunkWorldZ + z;
 				
-				// Проверяем границы мира
-				if (worldX < 0 || worldX >= worldSize || worldZ < 0 || worldZ >= worldSize) {
-					continue;
+				// ИСПРАВЛЕНО: работаем с waterMap только в допустимых границах
+				// waterMap имеет координаты от 0 до worldSize-1, но мир простирается от -worldSize/2 до +worldSize/2
+				// Поэтому работаем с waterMap только для положительных координат
+				float waterLevel = 0.0f;
+				if (worldX >= 0 && worldX < worldSize && worldZ >= 0 && worldZ < worldSize) {
+					int mapIndex = worldX + worldZ * worldSize;
+					waterLevel = waterMap[mapIndex];
+				}
+				// Для отрицательных координат waterLevel остаётся 0.0f, но море и городские озёра всё равно создаются
+				
+				// ИСПРАВЛЕНО: находим поверхность один раз для всех проверок
+				// Проверяем высоту террейна, чтобы не создавать воду под землёй
+				int surfaceYLocal = -1;
+				for (int y = CHUNK_SIZE_Y - 1; y >= 0; --y) {
+					if (isSolidLocal(x, y, z)) {
+						surfaceYLocal = y;
+						break;
+					}
 				}
 				
-				int mapIndex = worldX + worldZ * worldSize;
-				float waterLevel = waterMap[mapIndex];
+				if (surfaceYLocal < 0) continue; // Нет поверхности, пропускаем эту точку
 				
+				float surfaceWorldY = chunkWorldY + surfaceYLocal + 1.0f;
+				
+				// ИСПРАВЛЕНО: создаём море/озёра более агрессивно - если поверхность близка к уровню воды
+				// Это гарантирует наличие воды даже при небольших перепадах высот
+				const float oceanHalfWidth = 1000.0f;  // ИСПРАВЛЕНО: увеличена ширина моря ±1000 м вокруг Z=0 для большей площади воды
+				const float waterTolerance = 5.0f;  // ИСПРАВЛЕНО: увеличен допуск до 5 блоков для создания воды на большей площади
+				if (std::abs(static_cast<float>(worldZ)) < oceanHalfWidth && surfaceWorldY <= baseWaterLevel + waterTolerance) {
+					// Если в этой точке нет озера из waterMap и поверхность близка к уровню воды, создаём море
+					if (waterLevel <= 0.0f) {
+						waterLevel = baseWaterLevel;  // Используем базовый уровень воды для моря
+					} else {
+						// Если есть озеро, используем максимум между озером и морем
+						waterLevel = std::max(waterLevel, baseWaterLevel);
+					}
+				}
+				
+				// ИСПРАВЛЕНО: добавляем гарантированные "городские" озёра вокруг центра (0,0)
+				// Более агрессивно - создаём воду даже если поверхность чуть выше уровня воды
+				float distFromCenter = std::sqrt(static_cast<float>(worldX * worldX + worldZ * worldZ));
+				if (distFromCenter < 800.0f && waterLevel <= 0.0f && surfaceWorldY <= baseWaterLevel + waterTolerance) {
+					// ИСПРАВЛЕНО: увеличен радиус городских озёр с 500 до 800 метров для большей площади воды
+					waterLevel = baseWaterLevel;
+				}
+				
+				// ИСПРАВЛЕНО: создаём озёра как бассейны фиксированной глубины
+				// Вода создаётся ТОЛЬКО в выкопанных ямках, а не под террейном
 				if (waterLevel > 0.0f) {
-					// Есть озеро - понижаем высоту и заполняем водой
-					// Находим текущую поверхность
-					float currentSurfaceHeight = 0.0f;
-					for (int y = CHUNK_SIZE_Y - 1; y >= 0; y--) {
-						if (isSolidLocal(x, y, z)) {
-							currentSurfaceHeight = chunkWorldY + y + 1.0f;
-							break;
-						}
+					// ИСПРАВЛЕНО: более мягкая проверка - создаём воду если поверхность близка к уровню воды
+					// Это гарантирует наличие воды даже при небольших перепадах высот
+					const float waterTolerance = 5.0f;  // ИСПРАВЛЕНО: увеличен допуск до 5 блоков для создания воды на большей площади
+					if (surfaceWorldY > waterLevel + waterTolerance) {
+						continue; // Поверхность слишком высокая, пропускаем эту точку
 					}
 					
-					// Понижаем поверхность на величину waterLevel
-					float newSurfaceHeight = currentSurfaceHeight - waterLevel;
-					int newSurfaceY = static_cast<int>(newSurfaceHeight - chunkWorldY);
+					// 2) Мировая высота поверхности воды
+					int waterYLocal = static_cast<int>(std::floor(waterLevel - chunkWorldY));
+					if (waterYLocal < 0 || waterYLocal >= CHUNK_SIZE_Y) continue;
 					
-					// Удаляем блоки выше новой поверхности
-					for (int y = newSurfaceY + 1; y < CHUNK_SIZE_Y && y < static_cast<int>(currentSurfaceHeight - chunkWorldY); y++) {
+					// 3) Желаемая глубина озера (бассейн фиксированной глубины)
+					const int LAKE_MIN_DEPTH = 4; // Минимум 4 блока глубины для реалистичного озера
+					int lakeBottomLocal = std::max(0, waterYLocal - LAKE_MIN_DEPTH);
+					
+					// 4) Удаляем блоки между дном озера и поверхностью воды
+					// ИСПРАВЛЕНО: удаляем только до текущей поверхности, не выше
+					int maxYToRemove = std::min(waterYLocal, surfaceYLocal + 1);
+					for (int y = lakeBottomLocal; y <= maxYToRemove && y < CHUNK_SIZE_Y; ++y) {
 						voxel* vox = getVoxel(x, y, z);
 						if (vox != nullptr && vox->id != 0) {
-							setVoxel(x, y, z, 0); // Удаляем блок
+							setVoxel(x, y, z, 0); // Удаляем блок для создания бассейна
 						}
 					}
 					
-					// Заполняем водой до уровня waterLevel
-					int waterY = static_cast<int>(waterLevel - chunkWorldY);
-					if (waterY >= 0 && waterY < CHUNK_SIZE_Y) {
-						for (int y = 0; y <= waterY && y < CHUNK_SIZE_Y; y++) {
-							if (!isSolidLocal(x, y, z)) {
-								waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
-								waterData->setVoxelActive(x, y, z);
-							}
-						}
+					// 5) Заполняем водой весь столбик от дна до поверхности воды
+					// ИСПРАВЛЕНО: заполняем только до уровня воды, не выше текущей поверхности
+					int maxWaterY = std::min(waterYLocal, surfaceYLocal + 1);
+					for (int y = lakeBottomLocal; y <= maxWaterY && y < CHUNK_SIZE_Y; ++y) {
+						waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+						waterData->setVoxelActive(x, y, z);
 					}
 				}
 			}

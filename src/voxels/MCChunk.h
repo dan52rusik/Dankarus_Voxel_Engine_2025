@@ -63,7 +63,8 @@ public:
 		const std::vector<uint8_t>& roadMap,      // Карта дорог (worldSize * worldSize)
 		const std::vector<float>& waterMap,        // Карта воды (worldSize * worldSize)
 		int worldSize,                             // Размер мира
-		void* prefabManager                        // Менеджер префабов (PrefabSystem::PrefabManager*)
+		void* prefabManager,                       // Менеджер префабов (PrefabSystem::PrefabManager*)
+		float baseWaterLevel = 44.0f               // Базовый уровень воды для создания моря (по умолчанию из GeneratorParams)
 	);
 	
 	// Проверка, является ли воксель твёрдым (на основе densityField)

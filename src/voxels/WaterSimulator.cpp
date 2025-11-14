@@ -44,8 +44,17 @@ void WaterSimulator::Update(float deltaTime) {
 	// Для кэша соседей нужны все чанки (для межчанковых потоков)
 	std::vector<MCChunk*> allChunks = chunkManager->getAllChunks();
 	
-	// Инициализируем кэш соседей
-	neighborCache.InitializeCache(allChunks);
+	// Фильтруем только валидные чанки для кэша (защита от удалённых чанков)
+	std::vector<MCChunk*> validChunks;
+	validChunks.reserve(allChunks.size());
+	for (MCChunk* chunk : allChunks) {
+		if (chunk && chunk->generated) {
+			validChunks.push_back(chunk);
+		}
+	}
+	
+	// Инициализируем кэш соседей только валидными чанками
+	neighborCache.InitializeCache(validChunks);
 	
 	// Сбрасываем статистику
 	currentStats.Reset();
@@ -160,7 +169,8 @@ void WaterSimulator::CalcFlows(const std::vector<MCChunk*>& allChunks) {
 			break;
 		}
 		
-		if (!chunk || !chunk->waterData || !chunk->waterData->hasActiveWater()) {
+		// Проверяем валидность чанка перед использованием
+		if (!chunk || !chunk->generated || !chunk->waterData || !chunk->waterData->hasActiveWater()) {
 			continue;
 		}
 		
@@ -274,6 +284,28 @@ int WaterSimulator::ProcessFlowBelow(MCChunk* chunk, int voxelIndex, int x, int 
 		}
 	}
 	
+	// ИСПРАВЛЕНО: блокируем водопады в глубокие обрывы
+	// Проверяем, нет ли сразу глубокой пропасти под нами
+	int emptyBelowCount = 0;
+	for (int dy = 1; dy <= 4; ++dy) {
+		int yy = y - dy;
+		if (yy < 0) break;
+		
+		int massBelowTest = 0;
+		if (!TryGetMass(chunk, x, yy, z, massBelowTest)) break;
+		
+		if (massBelowTest == 0) {
+			emptyBelowCount++;
+		} else {
+			break; // Нашли воду или блок - останавливаемся
+		}
+	}
+	
+	// Если под нами минимум 3 блока пустоты -> считаем это "обрывом", не льём туда воду
+	if (emptyBelowCount >= 3) {
+		return 0; // Блокируем водопад в пропасть
+	}
+	
 	// Получаем массу в соседнем вокселе
 	int massBelow = 0;
 	if (!TryGetMass(chunk, x, yBelow, z, massBelow)) {
@@ -288,10 +320,17 @@ int WaterSimulator::ProcessFlowBelow(MCChunk* chunk, int voxelIndex, int x, int 
 		return 0;
 	}
 	
-	// Ограничиваем поток (FLOW_SPEED от разницы, как в 7DTD)
-	flow = static_cast<int>(flow * WaterConstants::FLOW_SPEED);
+	// ИСПРАВЛЕНО: максимально замедляем вертикальный поток для почти статичной воды
+	// Используем очень маленький множитель для вертикального потока
+	const float VERTICAL_FLOW_SPEED = 0.02f; // Почти нулевой поток - вода почти статична
+	flow = static_cast<int>(flow * VERTICAL_FLOW_SPEED);
+	
+	// Если после умножения меньше MIN_FLOW — не течём вообще
+	if (flow < WaterConstants::MIN_FLOW) {
+		return 0;
+	}
+	
 	flow = std::min(flow, mass); // Не больше текущей массы
-	flow = std::max(flow, 1); // Минимум 1
 	
 	// Если stableMass > MAX_MASS (перелив), ограничиваем поток разумным значением
 	if (stableMass > WaterConstants::MAX_MASS) {
@@ -307,8 +346,8 @@ int WaterSimulator::ProcessFlowBelow(MCChunk* chunk, int voxelIndex, int x, int 
 		// В том же чанке
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		chunk->waterData->applyFlow(neighborIndex, flow);
-	} else if (neighborChunk && neighborChunk->waterData) {
-		// В другом чанке - добавляем в очередь
+	} else if (neighborChunk && neighborChunk->generated && neighborChunk->waterData) {
+		// В другом чанке - добавляем в очередь (проверяем валидность)
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		neighborChunk->waterData->enqueueFlow(neighborIndex, flow);
 		neighborChunk->waterData->enqueueVoxelActive(neighborIndex);
@@ -367,7 +406,8 @@ int WaterSimulator::ProcessOverfull(MCChunk* chunk, int voxelIndex, int x, int y
 	if (neighborChunk == chunk) {
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		chunk->waterData->applyFlow(neighborIndex, flow);
-	} else if (neighborChunk && neighborChunk->waterData) {
+	} else if (neighborChunk && neighborChunk->generated && neighborChunk->waterData) {
+		// В другом чанке - добавляем в очередь (проверяем валидность)
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		neighborChunk->waterData->enqueueFlow(neighborIndex, flow);
 		neighborChunk->waterData->enqueueVoxelActive(neighborIndex);
@@ -455,7 +495,8 @@ int WaterSimulator::ProcessFlowSide(MCChunk* chunk, int voxelIndex, int x, int y
 	if (neighborChunk == chunk) {
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		chunk->waterData->applyFlow(neighborIndex, flow);
-	} else if (neighborChunk && neighborChunk->waterData) {
+	} else if (neighborChunk && neighborChunk->generated && neighborChunk->waterData) {
+		// В другом чанке - добавляем в очередь (проверяем валидность)
 		int neighborIndex = WaterUtils::GetVoxelIndex<MCChunk::CHUNK_SIZE_X, MCChunk::CHUNK_SIZE_Y, MCChunk::CHUNK_SIZE_Z>(nx, ny, nz);
 		neighborChunk->waterData->enqueueFlow(neighborIndex, flow);
 		neighborChunk->waterData->enqueueVoxelActive(neighborIndex);
@@ -471,7 +512,8 @@ int WaterSimulator::ProcessFlowSide(MCChunk* chunk, int voxelIndex, int x, int y
 void WaterSimulator::ApplyFlows(const std::vector<MCChunk*>& allChunks) {
 	// Применяем потоки ко всем чанкам
 	for (MCChunk* chunk : allChunks) {
-		if (!chunk || !chunk->waterData) {
+		// Проверяем валидность чанка перед использованием
+		if (!chunk || !chunk->generated || !chunk->waterData) {
 			continue;
 		}
 		
@@ -525,7 +567,8 @@ void WaterSimulator::ApplyFlows(const std::vector<MCChunk*>& allChunks) {
 void WaterSimulator::PostProcess(const std::vector<MCChunk*>& allChunks) {
 	// Применяем активации из других чанков
 	for (MCChunk* chunk : allChunks) {
-		if (!chunk || !chunk->waterData) {
+		// Проверяем валидность чанка перед использованием
+		if (!chunk || !chunk->generated || !chunk->waterData) {
 			continue;
 		}
 		

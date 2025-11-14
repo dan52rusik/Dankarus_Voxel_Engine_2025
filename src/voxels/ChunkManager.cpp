@@ -288,17 +288,35 @@ bool ChunkManager::loadChunk(int cx, int cy, int cz, MCChunk*& chunk) {
 		});
 	}
 	
-	// Генерируем воду после загрузки/генерации
-	// Используем функцию для получения переменного уровня воды
-	// ВРЕМЕННО: можно отключить для теста, раскомментировав следующую строку
-	// return; // Отключить генерацию воды для теста (раскомментируй для проверки террейна без воды)
+	// ВРЕМЕННО ОТКЛЮЧЕНО: глобальная генерация воды при загрузке чанка
+	// Оставляем только озёра из WorldBuilder (applyWorldBuilderModifications)
+	// Это создаёт более реалистичные бассейны вместо "воды везде"
+	// chunk->generateWater([this](int x, int z) {
+	//     return this->getWaterLevelAt(x, z);
+	// });
 	
-	chunk->generateWater([this](int x, int z) {
-		return this->getWaterLevelAt(x, z);
-	});
+	// Применяем модификации из WorldBuilder (дороги, озера, префабы)
+	// Аналогично generateChunk, чтобы и новые, и загруженные чанки использовали одну концепцию
+	if (worldBuilder != nullptr) {
+		const auto& roadMap = worldBuilder->GetRoadMap();
+		const auto& waterMap = worldBuilder->GetWaterMap();
+		int worldSize = worldBuilder->GetWorldSize();
+		
+		// Получаем PrefabManager из WorldBuilder (нужно добавить геттер)
+		// Пока что передаем nullptr, так как PrefabManager приватный
+		PrefabSystem::PrefabManager* prefabManager = nullptr;
+		
+		// Передаём базовый уровень воды для создания моря вдоль края карты
+		chunk->applyWorldBuilderModifications(roadMap, waterMap, worldSize, prefabManager, waterLevel);
+	}
 	
-	// Помечаем меш воды для пересборки после генерации
+	// Помечаем меш воды для пересборки после применения модификаций
 	chunk->waterMeshModified = true;
+	
+	// Добавляем чанк в список чанков с водой (если там есть вода)
+	if (chunk->waterData && chunk->waterData->hasActiveWater()) {
+		addChunkWithWater(chunk);
+	}
 	
 	chunk->generated = true;
 	chunk->dirty = false; // Загруженный чанк не грязный
@@ -375,18 +393,68 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		});
 	}
 	
-	// Генерируем воду после генерации террейна
-	// Используем функцию для получения переменного уровня воды
-	chunk->generateWater([this](int x, int z) {
-		return this->getWaterLevelAt(x, z);
-	});
+	// ВРЕМЕННО ОТКЛЮЧЕНО: глобальная генерация воды через getWaterLevelAt
+	// Оставляем только озёра из WorldBuilder (applyWorldBuilderModifications)
+	// Это создаёт более реалистичные бассейны вместо "воды везде"
+	// chunk->generateWater([this](int x, int z) {
+	//     return this->getWaterLevelAt(x, z);
+	// });
 	
-	// Помечаем меш воды для пересборки после генерации
+	// Меш воды помечаем для пересборки, потому что applyWorldBuilderModifications заполняет waterData
 	chunk->waterMeshModified = true;
 	
-	// Добавляем чанк в список чанков с водой (если там есть вода)
-	if (chunk->waterData && chunk->waterData->hasActiveWater()) {
-		addChunkWithWater(chunk);
+	// ИСПРАВЛЕНО: проверяем, создалась ли вода, и если нет - принудительно создаём базовую воду
+	// Это гарантирует наличие воды в чанках
+	if (chunk->waterData) {
+		if (!chunk->waterData->hasActiveWater()) {
+			// Вода не создалась - принудительно создаём базовую воду в низинах
+			// Это гарантирует видимость воды даже если WorldBuilder не создал озёра
+			int chunkWorldX = chunk->chunkPos.x * MCChunk::CHUNK_SIZE_X;
+			int chunkWorldZ = chunk->chunkPos.z * MCChunk::CHUNK_SIZE_Z;
+			int chunkWorldY = chunk->chunkPos.y * MCChunk::CHUNK_SIZE_Y;
+			
+			// Создаём воду в точках, где террейн ниже уровня воды
+			for (int z = 0; z < MCChunk::CHUNK_SIZE_Z; z++) {
+				for (int x = 0; x < MCChunk::CHUNK_SIZE_X; x++) {
+					int worldX = chunkWorldX + x;
+					int worldZ = chunkWorldZ + z;
+					
+					// Находим поверхность
+					int surfaceYLocal = -1;
+					for (int y = MCChunk::CHUNK_SIZE_Y - 1; y >= 0; --y) {
+						if (chunk->isSolidLocal(x, y, z)) {
+							surfaceYLocal = y;
+							break;
+						}
+					}
+					if (surfaceYLocal < 0) continue;
+					
+					float surfaceWorldY = chunkWorldY + surfaceYLocal + 1.0f;
+					
+					// ИСПРАВЛЕНО: более агрессивное создание воды - если поверхность близка к уровню воды
+					// Это гарантирует наличие воды на большей площади
+					if (surfaceWorldY <= waterLevel + 5.0f) {
+						int waterYLocal = static_cast<int>(std::floor(waterLevel - chunkWorldY));
+						if (waterYLocal >= 0 && waterYLocal < MCChunk::CHUNK_SIZE_Y) {
+							// Заполняем водой от поверхности до уровня воды
+							int startY = std::max(0, surfaceYLocal);
+							int endY = std::min(waterYLocal, MCChunk::CHUNK_SIZE_Y - 1);
+							for (int y = startY; y <= endY; y++) {
+								if (!chunk->isSolidLocal(x, y, z)) {
+									chunk->waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+									chunk->waterData->setVoxelActive(x, y, z);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// Добавляем чанк в список чанков с водой (если там есть вода)
+		if (chunk->waterData->hasActiveWater()) {
+			addChunkWithWater(chunk);
+		}
 	}
 	
 	// Добавляем декорации из DecoManager
@@ -419,7 +487,8 @@ void ChunkManager::generateChunk(int cx, int cy, int cz) {
 		// Пока что передаем nullptr, так как PrefabManager приватный
 		PrefabSystem::PrefabManager* prefabManager = nullptr;
 		
-		chunk->applyWorldBuilderModifications(roadMap, waterMap, worldSize, prefabManager);
+		// Передаём базовый уровень воды для создания моря вдоль края карты
+		chunk->applyWorldBuilderModifications(roadMap, waterMap, worldSize, prefabManager, waterLevel);
 	}
 	
 	chunks[key] = chunk;
@@ -637,14 +706,6 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance, float 
 	}
 }
 
-void ChunkManager::updateWaterSimulation(float deltaTime) {
-	if (waterSimulator != nullptr) {
-		waterSimulator->Update(deltaTime);
-	}
-	if (waterEvaporationManager != nullptr) {
-		waterEvaporationManager->Update(deltaTime);
-	}
-}
 
 MCChunk* ChunkManager::getChunk(const std::string& chunkKey) const {
 	auto it = chunks.find(chunkKey);
@@ -835,6 +896,25 @@ float ChunkManager::evalSurfaceHeight(float wx, float wz) const {
 		          << " (0,512)=" << h0_512 << " (512,512)=" << h512_512 << std::endl;
 	}
 	
+	// ИСПРАВЛЕНО: добавляем жёстко ровное плато с плавным переходом к обычному рельефу
+	// Внутренний радиус - абсолютно ровная зона, внешний - плавный переход
+	const float innerRadius = 100.0f;      // ИСПРАВЛЕНО: уменьшен радиус плато до 100 метров
+	const float outerRadius = 300.0f;     // ИСПРАВЛЕНО: уменьшен радиус перехода до 300 метров
+	const float cityHeight = waterLevel - 10.0f;  // ИСПРАВЛЕНО: плато ниже уровня воды на 10 блоков
+	
+	float distFromCenter = std::sqrt(wx_f * wx_f + wz_f * wz_f);
+	
+	if (distFromCenter < innerRadius) {
+		// ЖЁСТКОЕ плато – абсолютно ровный диск без шума
+		height = cityHeight;
+	} else if (distFromCenter < outerRadius) {
+		// Плавный переход от плато к обычному рельефу
+		float t = (distFromCenter - innerRadius) / (outerRadius - innerRadius); // 0..1 (0 = на краю innerRadius, 1 = на краю outerRadius)
+		t = glm::smoothstep(0.0f, 1.0f, t);  // Плавная интерполяция
+		height = glm::mix(cityHeight, height, t);  // Смешиваем плато с обычным рельефом
+	}
+	// За пределами outerRadius - обычный рельеф без изменений
+	
 	return height;
 }
 
@@ -860,7 +940,7 @@ float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
 	float wz = static_cast<float>(worldZ);
 	float surfaceHeight = evalSurfaceHeight(wx, wz);
 	
-	// Отладочный вывод для первых нескольких точек
+	// ДИАГНОСТИКА: выводим информацию только для первых 5 точек (уменьшено для производительности)
 	static int debugWaterLevelCount = 0;
 	if (debugWaterLevelCount < 5) {
 		std::cout << "[WATER_LEVEL] baseHeight=" << baseHeight
@@ -871,51 +951,60 @@ float ChunkManager::getWaterLevelAt(int worldX, int worldZ) const {
 		debugWaterLevelCount++;
 	}
 	
-	// Используем шум для определения типа водоема
-	// Разные частоты шума для разных типов водоемов
-	
-	// Морской шум (очень крупные области) - низкие области
-	float seaNoise = noise.fbm(wx * 0.001f, 0.0f, wz * 0.001f, 2, 2.0f, 0.5f);
-	
-	// Озерный шум (средние области) - долины
-	float lakeNoise = noise.fbm(wx * 0.005f + 1000.0f, 0.0f, wz * 0.005f + 2000.0f, 2, 2.0f, 0.5f);
-	
-	// Речной шум (узкие полосы) - извилистые долины
-	float riverNoise1 = noise.fbm(wx * 0.02f + 5000.0f, 0.0f, wz * 0.02f + 3000.0f, 1, 2.0f, 0.5f);
-	float riverNoise2 = noise.fbm(wx * 0.015f + 7000.0f, 0.0f, wz * 0.015f + 4000.0f, 1, 2.0f, 0.5f);
-	float riverDist = std::sqrt(riverNoise1 * riverNoise1 + riverNoise2 * riverNoise2);
-	
-	// Определяем тип водоема на основе шума и высоты поверхности
-	// ВАЖНО: вода должна быть только в низинах, а не везде!
-	
-	// Море: большие низкие области (seaNoise > 0.3 и surfaceHeight < waterLevel + 2)
-	// Только в действительно низких местах
-	if (seaNoise > 0.3f && surfaceHeight < waterLevel + 2.0f) {
-		return waterLevel + 1.5f; // Море немного выше базового уровня
-	}
-	
-	// Озеро: средние долины (lakeNoise > 0.6 и surfaceHeight < waterLevel + 1)
-	// Только в глубоких долинах
-	if (lakeNoise > 0.6f && surfaceHeight < waterLevel + 1.0f) {
-		return waterLevel + 0.5f; // Озеро на уровне воды
-	}
-	
-	// Река: узкие долины (riverDist < 0.15 и surfaceHeight < waterLevel)
-	// Только в очень узких и низких долинах
-	if (riverDist < 0.15f && surfaceHeight < waterLevel) {
-		// Высота реки зависит от глубины долины
-		float riverDepth = waterLevel - surfaceHeight;
-		float riverHeight = waterLevel - 0.3f + std::min(riverDepth * 0.2f, 0.8f);
-		return riverHeight;
-	}
-	
-	// Если поверхность ниже базового уровня воды, заполняем водой
-	// Это основное условие для генерации воды
+	// УПРОЩЁННАЯ ЛОГИКА: заполняем водой все низины ниже базового уровня
+	// Это гарантирует наличие воды в низких местах
 	if (surfaceHeight < waterLevel) {
+		if (debugWaterLevelCount <= 5) {
+			std::cout << "[WATER_LEVEL] Returning waterLevel=" << waterLevel << " (surfaceHeight < waterLevel)" << std::endl;
+		}
 		return waterLevel; // Базовый уровень воды
 	}
 	
+	// УПРОЩЁННАЯ ЛОГИКА: заполняем водой все низины на основе относительной высоты
+	// Вычисляем относительную высоту (нормализованную от baseHeight)
+	float relativeHeight = (surfaceHeight - baseHeight) / heightVariation;
+	
+	// Генерируем воду во всех низинах (relativeHeight < 0.8 = нижние 80% диапазона высот)
+	// ИСПРАВЛЕНО: порог повышен до 0.8, так как в этом мире большинство высот в диапазоне 0.6-0.8
+	// Это гарантирует наличие воды в низких местах мира
+	if (relativeHeight < 0.8f) {
+		// Используем шум для варьирования уровня воды (создаёт более естественный вид)
+		float waterNoise = noise.fbm(wx * 0.01f, 0.0f, wz * 0.01f, 2, 2.0f, 0.5f);
+		
+		// Вычисляем базовую высоту воды для этой низины
+		float baseWaterHeight = baseHeight + relativeHeight * heightVariation;
+		
+		// Добавляем небольшую вариацию на основе шума (от -1 до +2 единиц)
+		float waterHeight = baseWaterHeight + (waterNoise * 3.0f - 1.0f);
+		
+		// УБРАНО: слишком много сообщений замедляет загрузку
+		// if (debugWaterLevelCount <= 5) {
+		// 	std::cout << "[WATER_LEVEL] Returning WATER waterHeight=" << waterHeight 
+		// 	          << " (relativeHeight=" << relativeHeight << ", waterNoise=" << waterNoise << ")" << std::endl;
+		// }
+		return waterHeight;
+	}
+	
+	// Для средних высот (0.5-0.7) создаём небольшие озёра в долинах
+	if (relativeHeight < 0.7f) {
+		float valleyNoise = noise.fbm(wx * 0.01f, 0.0f, wz * 0.01f, 2, 2.0f, 0.5f);
+		if (valleyNoise > 0.7f) {
+			// Небольшое озеро в долине
+			float waterHeight = surfaceHeight + 0.5f;
+			// УБРАНО: слишком много сообщений замедляет загрузку
+			// if (debugWaterLevelCount <= 5) {
+			// 	std::cout << "[WATER_LEVEL] Returning VALLEY waterHeight=" << waterHeight 
+			// 	          << " (valleyNoise=" << valleyNoise << ", relativeHeight=" << relativeHeight << ")" << std::endl;
+			// }
+			return waterHeight;
+		}
+	}
+	
 	// Нет воды (суша)
+	// УБРАНО: слишком много сообщений замедляет загрузку
+	// if (debugWaterLevelCount <= 5) {
+	// 	std::cout << "[WATER_LEVEL] Returning NO WATER (surfaceHeight=" << surfaceHeight << ", relativeHeight=" << relativeHeight << ")" << std::endl;
+	// }
 	return -1000.0f; // Специальное значение, означающее отсутствие воды
 }
 
