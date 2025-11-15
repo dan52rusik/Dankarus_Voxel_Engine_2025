@@ -69,6 +69,12 @@ private:
     glm::ivec2 GetRandomWorldPosition();
     bool IsValidPositionForRoad(const glm::ivec2& pos) const;
     bool IsValidPositionForWater(const glm::ivec2& pos) const;
+    
+    // ИСПРАВЛЕНО: конвертеры между мировыми координатами и координатами сетки
+    // Мировые координаты: [-worldSize/2 .. +worldSize/2]
+    // Координаты сетки (GRID): [0 .. worldSize-1] (для PathingUtils, heightMap, waterMap)
+    glm::ivec2 WorldToGrid(const glm::ivec2& world) const;
+    glm::ivec2 GridToWorld(const glm::ivec2& grid) const;
 };
 
 #endif /* VOXELS_WORLDBUILDER_H_ */

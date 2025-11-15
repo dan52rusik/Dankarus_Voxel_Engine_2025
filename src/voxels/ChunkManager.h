@@ -8,10 +8,17 @@
 #include "BiomeDefinition.h"
 #include "GeneratorParams.h"
 #include <glm/glm.hpp>
+#include <cstdint>
 #include <unordered_map>
 #include <string>
 #include <vector>
 #include <deque>
+#include <queue>
+#include <thread>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <unordered_set>
 #include <limits>
 #include <memory>
 
@@ -129,6 +136,35 @@ public:
 	
 private:
 	std::unordered_map<std::string, MCChunk*> chunks;
+	
+	// Оптимизация предзагрузки: сохраняем предыдущую позицию камеры и центр чанка
+	glm::vec3 lastCameraPos;
+	bool hasLastCameraPos;
+	glm::ivec3 lastCenterChunk;
+	bool hasLastCenterChunk;
+	
+	// Очередь чанков на генерацию (формируется при смене центрального чанка)
+	std::deque<glm::ivec3> chunkLoadQueue;
+	struct ChunkBuildTask {
+		int cx;
+		int cy;
+		int cz;
+		uint64_t generation;
+	};
+	struct ChunkBuildResult {
+		MCChunk* chunk;
+		uint64_t generation;
+	};
+	std::queue<ChunkBuildTask> buildTaskQueue;
+	std::queue<ChunkBuildResult> buildResultQueue;
+	std::unordered_set<std::string> chunksPendingBuild;
+	std::mutex buildTaskMutex;
+	std::mutex buildResultMutex;
+	std::condition_variable buildTaskCv;
+	std::atomic<bool> buildThreadRunning{false};
+	std::thread buildThread;
+	std::atomic<uint64_t> streamingGeneration{0};
+	mutable std::mutex noiseMutex;
 	OpenSimplex3D noise;
 	
 	// Параметры генерации
@@ -184,6 +220,14 @@ private:
 	std::string chunkKey(int cx, int cy, int cz) const;
 	glm::ivec3 worldToChunk(const glm::vec3& worldPos) const;
 	void generateChunk(int cx, int cy, int cz);
+	void enqueueChunkBuild(int cx, int cy, int cz);
+	MCChunk* buildChunkData(int cx, int cy, int cz);
+	void finalizeGeneratedChunk(MCChunk* chunk);
+	void processBuildResults(int maxPerFrame = 4);
+	void buildThreadLoop();
+	void startBuildThread();
+	void stopBuildThread();
+	void discardBuildQueues();
 	void unloadDistantChunks(const glm::vec3& cameraPos, int renderDistance);
 	bool saveChunk(MCChunk* chunk); // Сохранить чанк на диск
 	bool loadChunk(int cx, int cy, int cz, MCChunk*& chunk); // Загрузить чанк с диска

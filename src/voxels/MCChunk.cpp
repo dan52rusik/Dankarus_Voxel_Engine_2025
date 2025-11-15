@@ -129,7 +129,10 @@ void MCChunk::setVoxel(int lx, int ly, int lz, uint8_t id) {
 	voxelMeshModified = true;
 }
 
-void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation) {
+void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation, bool buildMesh) {
+	// ДИАГНОСТИКА: проверяем, что generate() вызывается
+	std::cout << "[TERRAIN_GEN] FIXED: Generating chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z << ")..." << std::endl;
+	
 	// ВАЖНО: не проверяем generated здесь, чтобы можно было перегенерировать чанк
 	// (например, при изменении параметров генерации)
 	
@@ -233,14 +236,17 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 		}
 	}
 	
-	// Удаляем старый меш перед созданием нового
+	// Удаляем старый меш перед созданием нового (если он был)
 	if (mesh != nullptr) {
 		delete mesh;
 		mesh = nullptr;
 	}
 	
-	// Генерируем меш из поля плотности
-	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	if (buildMesh) {
+		// Генерируем меш из поля плотности
+		mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	}
+	
 	generated = true;
 	
 	// ДИАГНОСТИКА
@@ -253,7 +259,10 @@ void MCChunk::generate(OpenSimplex3D& noise, float baseFreq, int octaves, float 
 }
 
 // Оптимизированная генерация с использованием callback
-void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
+void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight, bool buildMesh) {
+	// ДИАГНОСТИКА: проверяем, что generate() вызывается
+	std::cout << "[TERRAIN_GEN] OPTIMIZED: Generating chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z << ")..." << std::endl;
+	
 	// ВАЖНО: не проверяем generated здесь, чтобы можно было перегенерировать чанк
 	
 	// Очищаем воду при регенерации (опционально)
@@ -299,14 +308,17 @@ void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
 		}
 	}
 	
-	// Удаляем старый меш перед созданием нового
+	// Удаляем старый меш перед созданием нового (если он был)
 	if (mesh != nullptr) {
 		delete mesh;
 		mesh = nullptr;
 	}
 	
-	// Генерируем меш из поля плотности
-	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	if (buildMesh) {
+		// Генерируем меш из поля плотности
+		mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
+	}
+	
 	generated = true;
 	
 	// ДИАГНОСТИКА
@@ -316,6 +328,22 @@ void MCChunk::generate(std::function<float(float, float)> evalSurfaceHeight) {
 		          << ") with OPTIMIZED terrain system (callback-based, soft density threshold)" << std::endl;
 		debugOptimizedCount++;
 	}
+}
+
+void MCChunk::buildTerrainMesh() {
+	if (mesh != nullptr) {
+		return; // уже построен
+	}
+	
+	const int NX = CHUNK_SIZE_X;
+	const int NY = CHUNK_SIZE_Y;
+	const int NZ = CHUNK_SIZE_Z;
+	
+	if (densityField.empty()) {
+		return;
+	}
+	
+	mesh = buildIsoSurface(densityField.data(), NX, NY, NZ, 0.0f);
 }
 
 void MCChunk::generateWater(float waterLevel) {
@@ -522,7 +550,18 @@ void MCChunk::applyWorldBuilderModifications(
 	void* prefabManagerPtr,
 	float baseWaterLevel) {
 	
+	// ДИАГНОСТИКА: проверяем, что applyWorldBuilderModifications вызывается
+	static int modCallCount = 0;
+	modCallCount++;
+	if (modCallCount <= 5) {
+		std::cout << "[WORLDBUILDER_MOD] Applying modifications to chunk (" << chunkPos.x << "," << chunkPos.y << "," << chunkPos.z 
+		          << ") roadMap.size=" << roadMap.size() << " waterMap.size=" << waterMap.size() << " baseWaterLevel=" << baseWaterLevel << std::endl;
+	}
+	
 	if (roadMap.empty() && waterMap.empty() && prefabManagerPtr == nullptr) {
+		if (modCallCount <= 5) {
+			std::cout << "[WORLDBUILDER_MOD] WARNING: All maps empty, skipping modifications!" << std::endl;
+		}
 		return; // Нет данных для применения
 	}
 	
@@ -588,15 +627,20 @@ void MCChunk::applyWorldBuilderModifications(
 				int worldX = chunkWorldX + x;
 				int worldZ = chunkWorldZ + z;
 				
-				// ИСПРАВЛЕНО: работаем с waterMap только в допустимых границах
+				// ИСПРАВЛЕНО: работаем с waterMap для всех координат мира
 				// waterMap имеет координаты от 0 до worldSize-1, но мир простирается от -worldSize/2 до +worldSize/2
-				// Поэтому работаем с waterMap только для положительных координат
+				// Преобразуем мировые координаты в индексы waterMap (смещаем отрицательные координаты)
 				float waterLevel = 0.0f;
-				if (worldX >= 0 && worldX < worldSize && worldZ >= 0 && worldZ < worldSize) {
-					int mapIndex = worldX + worldZ * worldSize;
-					waterLevel = waterMap[mapIndex];
+				// Преобразуем мировые координаты в координаты карты (смещение на worldSize/2)
+				int mapX = worldX + worldSize / 2;
+				int mapZ = worldZ + worldSize / 2;
+				if (mapX >= 0 && mapX < worldSize && mapZ >= 0 && mapZ < worldSize) {
+					int mapIndex = mapX + mapZ * worldSize;
+					if (mapIndex >= 0 && mapIndex < static_cast<int>(waterMap.size())) {
+						waterLevel = waterMap[mapIndex];
+					}
 				}
-				// Для отрицательных координат waterLevel остаётся 0.0f, но море и городские озёра всё равно создаются
+				// Если координаты вне карты, waterLevel остаётся 0.0f, но море и городские озёра всё равно создаются
 				
 				// ИСПРАВЛЕНО: находим поверхность один раз для всех проверок
 				// Проверяем высоту террейна, чтобы не создавать воду под землёй

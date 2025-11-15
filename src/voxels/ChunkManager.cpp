@@ -36,7 +36,8 @@ const char PATH_SEP = '/';
 ChunkManager::ChunkManager() 
 	: noise(1337), baseFreq(1.0f / 256.0f), octaves(5), lacunarity(2.0f), gain(0.5f), 
 	  baseHeight(40.0f), heightVariation(240.0f), waterLevel(38.0f), heightMap(nullptr),
-	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr) {
+	  heightMapBaseHeight(0.0f), heightMapScale(1.0f), worldSave(nullptr),
+	  lastCameraPos(0.0f), hasLastCameraPos(false), lastCenterChunk(0), hasLastCenterChunk(false) {
 	// Параметры настроены для красивого и разнообразного ландшафта:
 	// - baseFreq = 1.0f/256.0f - ПРАВИЛЬНО: float деление, не int!
 	// - octaves = 5 - оптимально для деталей без перегрузки
@@ -45,13 +46,16 @@ ChunkManager::ChunkManager()
 	// - waterLevel = 38.0f - уровень воды (baseHeight - 2.0f, будет переустановлен при создании мира)
 	// Террейн включает: континенты, домейн-варпинг, ридж-мультифрактал, террасы
 	// Биомы определяются по температуре и влажности для более реалистичного распределения
+	startBuildThread();
 }
 
 ChunkManager::~ChunkManager() {
+	stopBuildThread();
 	clear();
 }
 
 void ChunkManager::clear() {
+	streamingGeneration.fetch_add(1);
 	for (auto& pair : chunks) {
 		delete pair.second;
 	}
@@ -59,6 +63,15 @@ void ChunkManager::clear() {
 	visibleChunksCache.clear();
 	meshBuildQueue.clear();
 	chunksWithWater.clear();
+	chunkLoadQueue.clear();
+	chunksPendingBuild.clear();
+	discardBuildQueues();
+	// Сбрасываем состояние предзагрузки
+	hasLastCameraPos = false;
+	lastCameraPos = glm::vec3(0.0f);
+	hasLastCenterChunk = false;
+	lastCenterChunk = glm::ivec3(0);
+	chunkLoadQueue.clear();
 }
 
 std::string ChunkManager::chunkKey(int cx, int cy, int cz) const {
@@ -90,6 +103,222 @@ std::string ChunkManager::getChunkFilePath(int cx, int cy, int cz) const {
 	oss << worldPath << PATH_SEP << "regions" << PATH_SEP 
 	    << cx << "_" << cy << "_" << cz << ".bin";
 	return oss.str();
+}
+
+void ChunkManager::enqueueChunkBuild(int cx, int cy, int cz) {
+	ChunkBuildTask task{cx, cy, cz, streamingGeneration.load()};
+	{
+		std::lock_guard<std::mutex> lock(buildTaskMutex);
+		buildTaskQueue.push(task);
+	}
+	buildTaskCv.notify_one();
+}
+
+MCChunk* ChunkManager::buildChunkData(int cx, int cy, int cz) {
+	if (isOutsideBounds(cx, cz)) {
+		return nullptr;
+	}
+	
+	// Пока частично оставляем синхронный путь для высотных карт
+	if (heightMap != nullptr) {
+		return nullptr;
+	}
+	
+	MCChunk* chunk = new MCChunk(cx, cy, cz);
+	chunk->dirty = false;
+	
+	chunk->generate([this](float wx, float wz) {
+		return this->evalSurfaceHeight(wx, wz);
+	}, false);
+	
+	// Помечаем необходимость пересборки мешей позже
+	chunk->voxelMeshModified = true;
+	chunk->waterMeshModified = true;
+	return chunk;
+}
+
+void ChunkManager::finalizeGeneratedChunk(MCChunk* chunk) {
+	if (!chunk) {
+		return;
+	}
+	
+	const int cx = chunk->chunkPos.x;
+	const int cy = chunk->chunkPos.y;
+	const int cz = chunk->chunkPos.z;
+	std::string key = chunkKey(cx, cy, cz);
+	
+	if (chunks.find(key) != chunks.end()) {
+		delete chunk;
+		return;
+	}
+	
+	chunk->buildTerrainMesh();
+	chunk->generated = true;
+	chunk->dirty = false;
+	chunk->voxelMeshModified = true;
+	chunk->waterMeshModified = true;
+	
+	// Создаём базовую воду, если WorldBuilder не заполнил чанк
+	if (chunk->waterData) {
+		if (!chunk->waterData->hasActiveWater()) {
+			int chunkWorldX = chunk->chunkPos.x * MCChunk::CHUNK_SIZE_X;
+			int chunkWorldZ = chunk->chunkPos.z * MCChunk::CHUNK_SIZE_Z;
+			int chunkWorldY = chunk->chunkPos.y * MCChunk::CHUNK_SIZE_Y;
+			
+			for (int z = 0; z < MCChunk::CHUNK_SIZE_Z; z++) {
+				for (int x = 0; x < MCChunk::CHUNK_SIZE_X; x++) {
+					int surfaceYLocal = -1;
+					for (int y = MCChunk::CHUNK_SIZE_Y - 1; y >= 0; --y) {
+						if (chunk->isSolidLocal(x, y, z)) {
+							surfaceYLocal = y;
+							break;
+						}
+					}
+					if (surfaceYLocal < 0) continue;
+					
+					float surfaceWorldY = chunkWorldY + surfaceYLocal + 1.0f;
+					if (surfaceWorldY <= waterLevel + 5.0f) {
+						int waterYLocal = static_cast<int>(std::floor(waterLevel - chunkWorldY));
+						if (waterYLocal >= 0 && waterYLocal < MCChunk::CHUNK_SIZE_Y) {
+							int startY = std::max(0, surfaceYLocal);
+							int endY = std::min(waterYLocal, MCChunk::CHUNK_SIZE_Y - 1);
+							for (int y = startY; y <= endY; y++) {
+								if (!chunk->isSolidLocal(x, y, z)) {
+									chunk->waterData->setVoxelMass(x, y, z, WaterUtils::WATER_MASS_MAX);
+									chunk->waterData->setVoxelActive(x, y, z);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		if (chunk->waterData->hasActiveWater()) {
+			addChunkWithWater(chunk);
+		}
+	}
+	
+	if (decoManager != nullptr) {
+		std::vector<DecoObject> decos;
+		decoManager->getDecorationsOnChunk(cx, cz, decos);
+		for (const auto& deco : decos) {
+			int lx = deco.pos.x - (cx * MCChunk::CHUNK_SIZE_X);
+			int ly = deco.pos.y - (cy * MCChunk::CHUNK_SIZE_Y);
+			int lz = deco.pos.z - (cz * MCChunk::CHUNK_SIZE_Z);
+			if (lx >= 0 && lx < MCChunk::CHUNK_SIZE_X &&
+			    ly >= 0 && ly < MCChunk::CHUNK_SIZE_Y &&
+			    lz >= 0 && lz < MCChunk::CHUNK_SIZE_Z) {
+				chunk->setVoxel(lx, ly, lz, deco.blockId);
+			}
+		}
+	}
+	
+	if (worldBuilder != nullptr) {
+		const auto& roadMap = worldBuilder->GetRoadMap();
+		const auto& waterMap = worldBuilder->GetWaterMap();
+		int worldSize = worldBuilder->GetWorldSize();
+		PrefabSystem::PrefabManager* prefabManager = nullptr;
+		chunk->applyWorldBuilderModifications(roadMap, waterMap, worldSize, prefabManager, waterLevel);
+	}
+	
+	chunks[key] = chunk;
+}
+
+void ChunkManager::processBuildResults(int maxPerFrame) {
+	int processed = 0;
+	while (processed < maxPerFrame) {
+		ChunkBuildResult result;
+		{
+			std::lock_guard<std::mutex> lock(buildResultMutex);
+			if (buildResultQueue.empty()) break;
+			result = buildResultQueue.front();
+			buildResultQueue.pop();
+		}
+		
+		processed++;
+		
+		if (!result.chunk) {
+			continue;
+		}
+		
+		glm::ivec3 pos = result.chunk->chunkPos;
+		std::string key = chunkKey(pos.x, pos.y, pos.z);
+		chunksPendingBuild.erase(key);
+		
+		if (result.generation != streamingGeneration.load()) {
+			delete result.chunk;
+			continue;
+		}
+		
+		if (chunks.find(key) != chunks.end() || isOutsideBounds(pos.x, pos.z)) {
+			delete result.chunk;
+			continue;
+		}
+		
+		finalizeGeneratedChunk(result.chunk);
+	}
+}
+
+void ChunkManager::buildThreadLoop() {
+	while (true) {
+		ChunkBuildTask task;
+		{
+			std::unique_lock<std::mutex> lock(buildTaskMutex);
+			buildTaskCv.wait(lock, [&]() {
+				return !buildThreadRunning.load() || !buildTaskQueue.empty();
+			});
+			if (!buildThreadRunning.load() && buildTaskQueue.empty()) {
+				return;
+			}
+			task = buildTaskQueue.front();
+			buildTaskQueue.pop();
+		}
+		
+		MCChunk* chunk = buildChunkData(task.cx, task.cy, task.cz);
+		if (!chunk) {
+			continue;
+		}
+		
+		{
+			std::lock_guard<std::mutex> lock(buildResultMutex);
+			buildResultQueue.push({chunk, task.generation});
+		}
+	}
+}
+
+void ChunkManager::startBuildThread() {
+	buildThreadRunning = true;
+	buildThread = std::thread(&ChunkManager::buildThreadLoop, this);
+}
+
+void ChunkManager::stopBuildThread() {
+	if (!buildThreadRunning.load()) {
+		return;
+	}
+	buildThreadRunning = false;
+	buildTaskCv.notify_all();
+	if (buildThread.joinable()) {
+		buildThread.join();
+	}
+}
+
+void ChunkManager::discardBuildQueues() {
+	{
+		std::lock_guard<std::mutex> lock(buildTaskMutex);
+		std::queue<ChunkBuildTask> empty;
+		std::swap(buildTaskQueue, empty);
+	}
+	{
+		std::lock_guard<std::mutex> lock(buildResultMutex);
+		while (!buildResultQueue.empty()) {
+			if (buildResultQueue.front().chunk) {
+				delete buildResultQueue.front().chunk;
+			}
+			buildResultQueue.pop();
+		}
+	}
+	chunksPendingBuild.clear();
 }
 
 bool ChunkManager::saveChunk(MCChunk* chunk) {
@@ -520,9 +749,16 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 	// Гистерезис-зона: выгружаем на расстоянии renderDistance + 1
 	// чтобы чанки не дергались при дрожании камеры на границе
 	const int unloadDistance = renderDistance + 1;
-	const int yRadius = 1; // Только текущий уровень и соседние по Y
 	
-	// Удаляем чанки, которые слишком далеко от камеры
+	// ИСПРАВЛЕНО: асимметричный радиус по Y - больше чанков вниз, меньше вверх
+	// Это позволяет чанкам под игроком сохраняться при взлёте
+	const int yRadiusDown = 8;   // Чанки вниз от камеры (чтобы не пропадали при взлёте)
+	const int yRadiusUp = 3;     // Чанки вверх от камеры (меньше, т.к. обычно не нужны)
+	
+	// Удаляем чанки, которые слишком далеко от камеры (с ограничением на кадр)
+	const int maxUnloadsPerFrame = 8;
+	int unloadedThisFrame = 0;
+	
 	// ВАЖНО: используем безопасный паттерн итерации с правильным обновлением итератора
 	for (auto it = chunks.begin(); it != chunks.end(); ) {
 		MCChunk* chunk = it->second;
@@ -533,10 +769,19 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 		int dy = chunkPos.y - cameraChunk.y;
 		int dz = chunkPos.z - cameraChunk.z;
 		int distXZ = std::max(std::abs(dx), std::abs(dz)); // По X/Z
-		int distY = std::abs(dy);
+		
+		// ИСПРАВЛЕНО: асимметричная проверка по Y
+		bool tooFarY = false;
+		if (dy > 0) {
+			// Чанк выше камеры
+			tooFarY = (dy > yRadiusUp + 1);
+		} else {
+			// Чанк ниже камеры
+			tooFarY = (std::abs(dy) > yRadiusDown + 1);
+		}
 		
 		// Проверяем, слишком ли далеко
-		bool tooFar = (distXZ > unloadDistance) || (distY > yRadius + 1);
+		bool tooFar = (distXZ > unloadDistance) || tooFarY;
 		
 		if (tooFar) {
 			// 1. Убираем чанк из всех вспомогательных контейнеров ПЕРЕД удалением
@@ -565,6 +810,10 @@ void ChunkManager::unloadDistantChunks(const glm::vec3& cameraPos, int renderDis
 			
 			// 4. Стереть из map ПРАВИЛЬНО (обновляем итератор)
 			it = chunks.erase(it);
+			
+			if (++unloadedThisFrame >= maxUnloadsPerFrame) {
+				break;
+			}
 		} else {
 			++it;
 		}
@@ -635,33 +884,172 @@ static void ringOrder(int R, std::vector<glm::ivec3>& out, int cy, int yRadius) 
 void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance, float deltaTime) {
 	glm::ivec3 cc = worldToChunk(cameraPos);
 	
-	// Только 3 уровня по высоте: текущий, над и под
-	const int yRadius = 1;
+	// ИСПРАВЛЕНО: асимметричный радиус по Y - больше чанков вниз, меньше вверх
+	// Это позволяет генерировать чанки под игроком при взлёте
+	const int yRadiusDown = 8;   // Чанки вниз от камеры
+	const int yRadiusUp = 3;     // Чанки вверх от камеры
 	
-	// Бюджет на кадр: сколько чанков генерить/читать
-	const int budgetPerFrame = 6;
+	// ОПТИМИЗАЦИЯ: увеличенный радиус предзагрузки (загружаем дальше, чем видимость)
+	// Это позволяет заранее загружать чанки, чтобы при движении они уже были готовы
+	const int preloadRadius = renderDistance + 2; // Предзагружаем на 2 чанка дальше видимости
 	
-	int issued = 0;
-	for (int r = 0; r <= renderDistance && issued < budgetPerFrame; ++r) {
-		std::vector<glm::ivec3> ring;
-		ring.reserve((8 * r + 4) * (2 * yRadius + 1));
-		ringOrder(r, ring, cc.y, yRadius);
+	// ОПТИМИЗАЦИЯ: адаптивный бюджет на генерацию чанков
+	// Увеличиваем бюджет для более плавной загрузки
+	const int baseBudgetPerFrame = 12; // Базовый бюджет (было 6)
+	const int maxBudgetPerFrame = 20;  // Максимальный бюджет при быстром движении
+	const int startupBudgetPerFrame = 30; // Бюджет при старте (когда нужно загрузить много чанков)
+	
+	// Вычисляем направление движения для приоритизации загрузки
+	glm::vec3 movementDir(0.0f);
+	float movementSpeed = 0.0f;
+	if (hasLastCameraPos) {
+		glm::vec3 deltaPos = cameraPos - lastCameraPos;
+		movementSpeed = glm::length(deltaPos);
+		// Нормализуем направление для приоритизации
+		if (movementSpeed > 0.01f && deltaTime > 0.001f) {
+			movementDir = deltaPos / movementSpeed;
+			movementSpeed /= deltaTime; // Скорость в единицах/сек
+		}
+	}
+	lastCameraPos = cameraPos;
+	hasLastCameraPos = true;
+	
+	// Хелпер для пересборки очереди чанков вокруг нового центрального чанка
+	auto rebuildChunkLoadQueue = [&](const glm::ivec3& center) {
+		struct ChunkCandidate {
+			glm::ivec3 pos;
+			float priority;
+		};
+		std::vector<ChunkCandidate> candidates;
+		candidates.reserve(preloadRadius * preloadRadius * (yRadiusDown + yRadiusUp + 1));
 		
-		for (const auto& d : ring) {
-			int cx = cc.x + d.x;
-			int cy = cc.y + d.y;
-			int cz = cc.z + d.z;
-			
-			if (isOutsideBounds(cx, cz)) continue;
-			
-			std::string key = chunkKey(cx, cy, cz);
-			if (chunks.find(key) == chunks.end()) {
-				generateChunk(cx, cy, cz);
-				if (++issued >= budgetPerFrame) break;
+		for (int r = 0; r <= preloadRadius; ++r) {
+			for (int dx = -r; dx <= r; ++dx) {
+				for (int dz = -r; dz <= r; ++dz) {
+					if (r > 0 && std::max(std::abs(dx), std::abs(dz)) != r) continue;
+					
+					for (int dy = -yRadiusDown; dy <= yRadiusUp; ++dy) {
+						int cx = center.x + dx;
+						int cy = center.y + dy;
+						int cz = center.z + dz;
+						
+						if (isOutsideBounds(cx, cz)) continue;
+						
+						std::string key = chunkKey(cx, cy, cz);
+						if (chunks.find(key) != chunks.end()) continue;
+						
+						float distXZ = std::max(std::abs(dx), std::abs(dz));
+						float distY = std::abs(dy);
+						float priority = 1000.0f / (1.0f + distXZ + distY * 0.5f);
+						
+						if (glm::length(movementDir) > 0.01f) {
+							glm::vec3 chunkWorldPos(
+								(cx + 0.5f) * MCChunk::CHUNK_SIZE_X,
+								(cy + 0.5f) * MCChunk::CHUNK_SIZE_Y,
+								(cz + 0.5f) * MCChunk::CHUNK_SIZE_Z
+							);
+							glm::vec3 toChunk = chunkWorldPos - cameraPos;
+							float toChunkLen = glm::length(toChunk);
+							if (toChunkLen > 0.01f) {
+								toChunk /= toChunkLen;
+								float dot = glm::dot(movementDir, toChunk);
+								if (dot > 0.0f) {
+									priority += 500.0f * dot;
+								}
+							}
+						}
+						
+						if (distXZ <= renderDistance) {
+							priority += 2000.0f;
+						}
+						
+						candidates.push_back({glm::ivec3(cx, cy, cz), priority});
+					}
+				}
 			}
 		}
-		if (issued >= budgetPerFrame) break;
+		
+		std::sort(candidates.begin(), candidates.end(),
+		          [](const ChunkCandidate& a, const ChunkCandidate& b) {
+			          return a.priority > b.priority;
+		          });
+		
+		chunkLoadQueue.clear();
+		for (const auto& c : candidates) {
+			chunkLoadQueue.push_back(c.pos);
+		}
+		
+		lastCenterChunk = center;
+		hasLastCenterChunk = true;
+	};
+	
+	bool centerChanged = (!hasLastCenterChunk || cc != lastCenterChunk);
+	if (centerChanged || chunkLoadQueue.empty()) {
+		rebuildChunkLoadQueue(cc);
+	} else {
+		// Убираем уже загруженные чанки из очереди
+		while (!chunkLoadQueue.empty()) {
+			const glm::ivec3& pos = chunkLoadQueue.front();
+			if (chunks.find(chunkKey(pos.x, pos.y, pos.z)) == chunks.end()) {
+				break;
+			}
+			chunkLoadQueue.pop_front();
+		}
+		
+		if (chunkLoadQueue.empty()) {
+			rebuildChunkLoadQueue(cc);
+		}
 	}
+	
+	processBuildResults(4);
+	
+	int unloadedCount = static_cast<int>(chunkLoadQueue.size());
+	int budgetPerFrame = baseBudgetPerFrame;
+	if (unloadedCount > 50) {
+		budgetPerFrame = startupBudgetPerFrame;
+	} else if (movementSpeed > 10.0f) {
+		budgetPerFrame = maxBudgetPerFrame;
+	} else if (movementSpeed > 5.0f || unloadedCount > 20) {
+		budgetPerFrame = (baseBudgetPerFrame + maxBudgetPerFrame) / 2;
+	}
+	
+	int issued = 0;
+	while (issued < budgetPerFrame && !chunkLoadQueue.empty()) {
+		glm::ivec3 pos = chunkLoadQueue.front();
+		chunkLoadQueue.pop_front();
+		
+		if (isOutsideBounds(pos.x, pos.z)) {
+			continue;
+		}
+		
+		std::string key = chunkKey(pos.x, pos.y, pos.z);
+		if (chunks.find(key) != chunks.end()) {
+			continue; // уже загружен (мог появиться в другом кадре)
+		}
+		
+		if (chunksPendingBuild.find(key) != chunksPendingBuild.end()) {
+			continue; // уже строится
+		}
+		
+		MCChunk* loadedChunk = nullptr;
+		if (loadChunk(pos.x, pos.y, pos.z, loadedChunk)) {
+			chunks[key] = loadedChunk;
+			issued++;
+			continue;
+		}
+		
+		if (heightMap != nullptr) {
+			generateChunk(pos.x, pos.y, pos.z);
+			issued++;
+			continue;
+		}
+		
+		chunksPendingBuild.insert(key);
+		enqueueChunkBuild(pos.x, pos.y, pos.z);
+		issued++;
+	}
+	
+	processBuildResults(4);
 	
 	// Обновляем симуляцию воды ПЕРЕД выгрузкой чанков
 	// (чтобы вода успела обработать чанки до их удаления)
@@ -676,26 +1064,44 @@ void ChunkManager::update(const glm::vec3& cameraPos, int renderDistance, float 
 	unloadDistantChunks(cameraPos, renderDistance);
 	
 	// Обновляем кэш видимых чанков ПОСЛЕ выгрузки (чтобы не было мёртвых указателей)
+	// ИСПРАВЛЕНО: используем те же асимметричные радиусы, что и при генерации/выгрузке
+	// (yRadiusDown и yRadiusUp уже объявлены выше в этой функции)
+	
 	visibleChunksCache.clear();
 	for (auto& kv : chunks) {
 		MCChunk* c = kv.second;
 		if (!c->generated || c->mesh == nullptr) continue;
 		
 		glm::ivec3 d = c->chunkPos - cc;
-		int dist = std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});
-		if (dist > renderDistance) continue; // защита от далеких чанков
+		int distXZ = std::max(std::abs(d.x), std::abs(d.z));
+		int distY = d.y;
+		
+		// ИСПРАВЛЕНО: асимметричная проверка по Y для видимых чанков
+		bool inRangeY = false;
+		if (distY >= 0) {
+			// Чанк выше камеры
+			inRangeY = (distY <= yRadiusUp);
+		} else {
+			// Чанк ниже камеры
+			inRangeY = (std::abs(distY) <= yRadiusDown);
+		}
+		
+		if (distXZ > renderDistance || !inRangeY) continue; // защита от далеких чанков
 		
 		visibleChunksCache.push_back(c);
 	}
 	
 	// Опционально — отсортировать по расстоянию для красивой подгрузки
+	// ИСПРАВЛЕНО: используем L∞ норму только по X/Z, Y учитываем отдельно
 	std::sort(visibleChunksCache.begin(), visibleChunksCache.end(),
 	          [cc](MCChunk* a, MCChunk* b){
 	              glm::ivec3 da = a->chunkPos - cc;
 	              glm::ivec3 db = b->chunkPos - cc;
-	              int ra = std::max({std::abs(da.x), std::abs(da.y), std::abs(da.z)});
-	              int rb = std::max({std::abs(db.x), std::abs(db.y), std::abs(db.z)});
-	              return ra < rb;
+	              int raXZ = std::max(std::abs(da.x), std::abs(da.z));
+	              int rbXZ = std::max(std::abs(db.x), std::abs(db.z));
+	              if (raXZ != rbXZ) return raXZ < rbXZ;
+	              // Если одинаковое расстояние по X/Z, сортируем по Y (ближе к камере = выше)
+	              return std::abs(da.y) < std::abs(db.y);
 	          });
 	
 	// Периодическое сохранение (раз в 2 секунды)
@@ -749,6 +1155,7 @@ void ChunkManager::getNoiseParams(float& baseFreq, int& octaves, float& lacunari
 }
 
 void ChunkManager::setSeed(int64_t seed) {
+	std::lock_guard<std::mutex> lock(noiseMutex);
 	// Пересоздаем объект noise с новым seed используя placement new
 	noise.~OpenSimplex3D();
 	new (&noise) OpenSimplex3D(seed);
@@ -840,31 +1247,12 @@ float ChunkManager::evalSurfaceHeight(float wx, float wz) const {
 	
 	float cont01 = glm::smoothstep(-0.35f, 0.35f, cont); // было -0.25..0.45 → перекос
 	
-	// 3) Холмы (средняя частота)
-	float hills = noise.fbm_norm(x * baseFreq * 0.6f, 0.0f, z * baseFreq * 0.6f, 5, 2.0f, 0.5f);
-	hills = remap01(hills);
+	// ИСПРАВЛЕНО: убираем горы - только очень мягкие волны для плоского ландшафта
+	// Оставляем только базовый континентальный слой, убираем холмы, риджи и детали
+	float h01 = cont01; // Используем только континентальный слой - мягкие волны без гор
 	
-	// 4) Риджи (гребни)
-	float rsrc = noise.fbm_norm(x * baseFreq * 0.35f, 0.0f, z * baseFreq * 0.35f, 4, 2.1f, 0.5f);
-	float ridg = glm::clamp((ridge(rsrc) - 0.2f) * 1.4f, 0.0f, 1.0f);
-	
-	// 5) Детали (высокие частоты) - не душим полностью вне гребней
-	float det = noise.fbm_norm(x * baseFreq * 1.8f, 0.0f, z * baseFreq * 1.8f, 3, 2.2f, 0.5f);
-	det = det * det; // подавить мелкий шум внизу
-	float detWeight = glm::mix(0.05f, 1.0f, glm::smoothstep(0.45f, 0.8f, ridg)); // оставь хвост
-	
-	// 6) Смешивание слоёв по маскам - усилить риджи для выразительности
-	float hillsWeight = glm::mix(0.40f, 0.55f, cont01);   // немного ослабить холмы
-	float ridgWeight = glm::mix(0.35f, 0.65f, cont01);   // усилить риджи (было 0.25..0.55)
-	float h01 = glm::clamp(
-		hillsWeight * hills +
-		ridgWeight * ridg +
-		detWeight * (det * 0.25f),
-		0.0f, 1.0f);
-	
-	// 7) Мягкие террасы - мягче и выше порог
-	float terraceSharp = glm::smoothstep(0.6f, 0.92f, h01) * 0.35f; // мягче и выше порог (было 0.45f)
-	h01 = smooth_terrace(h01, 9.0f, terraceSharp); // steps 8-10, НЕ ниже 6
+	// ИСПРАВЛЕНО: убираем террасы - они создают ступеньки, нам нужна гладкая равнина
+	// h01 остаётся как есть - гладкая волна от континентального шума
 	
 	// 8) Высота в метрах (или вокселях)
 	float height = seaLevel + h01 * heightScale;

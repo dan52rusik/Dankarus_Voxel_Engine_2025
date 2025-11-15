@@ -47,16 +47,25 @@ void WorldBuilder::InitializeMaps() {
     heightMap.resize(mapSize, 0.0f);
     waterMap.resize(mapSize, 0.0f);
     
-    // Заполняем карту высот из ChunkManager
+    // ИСПРАВЛЕНО: заполняем карту высот из ChunkManager для всех координат мира
+    // Мир простирается от -worldSize/2 до +worldSize/2, но карта индексируется от 0 до worldSize-1
     for (int z = 0; z < worldSize; z++) {
         for (int x = 0; x < worldSize; x++) {
             int index = x + z * worldSize;
-            heightMap[index] = chunkManager->evalSurfaceHeight(static_cast<float>(x), static_cast<float>(z));
+            // Преобразуем координаты карты в мировые координаты
+            int worldX = x - worldSize / 2;
+            int worldZ = z - worldSize / 2;
+            heightMap[index] = chunkManager->evalSurfaceHeight(static_cast<float>(worldX), static_cast<float>(worldZ));
         }
     }
 }
 
 void WorldBuilder::GenerateRoads(int numHighways, int numCountryRoads) {
+    // ВРЕМЕННО ОТКЛЮЧЕНО: дороги вызывают segfault из-за несоответствия координат
+    // TODO: исправить координаты для PathingUtils (GRID vs WORLD)
+    std::cout << "[WORLDBUILDER] Roads TEMPORARILY DISABLED (fixing coordinate system)" << std::endl;
+    return;
+    
     if (!pathingUtils || !rand || !chunkManager) {
         return;
     }
@@ -210,8 +219,13 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
             continue;
         }
         
-        // Проверяем, что это действительно низина (окружение выше)
-        int index = pos.x + pos.y * worldSize;
+        // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты (смещение на worldSize/2)
+        int mapX = pos.x + worldSize / 2;
+        int mapZ = pos.y + worldSize / 2;
+        if (mapX < 0 || mapX >= worldSize || mapZ < 0 || mapZ >= worldSize) {
+            continue;
+        }
+        int index = mapX + mapZ * worldSize;
         if (index < 0 || index >= static_cast<int>(heightMap.size())) {
             continue;
         }
@@ -225,8 +239,11 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
             for (int dx = -16; dx <= 16; dx++) {
                 int nx = pos.x + dx;
                 int nz = pos.y + dz;
-                if (nx >= 0 && nx < worldSize && nz >= 0 && nz < worldSize) {
-                    int nidx = nx + nz * worldSize;
+                // Преобразуем мировые координаты в координаты карты
+                int nmapX = nx + worldSize / 2;
+                int nmapZ = nz + worldSize / 2;
+                if (nmapX >= 0 && nmapX < worldSize && nmapZ >= 0 && nmapZ < worldSize) {
+                    int nidx = nmapX + nmapZ * worldSize;
                     if (nidx >= 0 && nidx < static_cast<int>(heightMap.size())) {
                         avgHeight += heightMap[nidx];
                         count++;
@@ -238,10 +255,11 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
             avgHeight /= count;
         }
         
-        // Озеро только если центр ниже среднего на 5+ единиц
-        if (centerHeight < avgHeight - 5.0f) {
-            // Размер озера зависит от глубины низины
-            float depth = avgHeight - centerHeight;
+        // ИСПРАВЛЕНО: озеро даже при небольшой низине (мир теперь почти плоский)
+        if (centerHeight < avgHeight - 1.5f) { // было 5.0f
+            // Гарантируем ощутимую глубину даже при маленьких перепадах
+            float depth = (avgHeight - centerHeight) + 1.5f;
+            
             int lakeSize = static_cast<int>(32.0f + depth * 2.0f + rand->Range(32));
             lakeSize = std::min(lakeSize, 128); // Максимум 128
             
@@ -249,7 +267,7 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
             lakeStamp->name = "lake_" + std::to_string(lakesPlaced);
             lakeStamp->width = lakeSize;
             lakeStamp->height = lakeSize;
-            lakeStamp->heightConst = -depth * 0.5f; // Понижаем высоту пропорционально глубине
+            lakeStamp->heightConst = -depth * 0.6f; // ИСПРАВЛЕНО: чуть глубже, чтобы прям "ямы" были (было 0.5f)
             lakeStamp->alphaConst = 1.0f;
             
             // Создаем более естественную форму озера (не идеальный круг)
@@ -277,7 +295,8 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
                     
                     // Вода только внутри радиуса
                     if (dist < radius) {
-                        float waterLevel = centerHeight + depth * 0.3f; // Уровень воды немного выше дна
+                        // ИСПРАВЛЕНО: вода ощутимо выше дна, но не вровень с краями
+                        float waterLevel = centerHeight + depth * 0.4f; // было 0.3f
                         lakeStamp->waterPixels[x + y * lakeSize] = waterLevel;
                     } else {
                         lakeStamp->waterPixels[x + y * lakeSize] = 0.0f;
@@ -299,15 +318,22 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
     for (int i = 0; i < numRivers * 2 && riversPlaced < numRivers; i++) {
         // Начинаем реку с высокой точки
         glm::ivec2 start = GetRandomWorldPosition();
-        int startIdx = start.x + start.y * worldSize;
+        // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+        int startMapX = start.x + worldSize / 2;
+        int startMapZ = start.y + worldSize / 2;
+        if (startMapX < 0 || startMapX >= worldSize || startMapZ < 0 || startMapZ >= worldSize) {
+            continue;
+        }
+        int startIdx = startMapX + startMapZ * worldSize;
         if (startIdx < 0 || startIdx >= static_cast<int>(heightMap.size())) {
             continue;
         }
         
         float startHeight = heightMap[startIdx];
         
-        // Река должна начинаться достаточно высоко
-        if (startHeight < 50.0f) {
+        // ИСПРАВЛЕНО: мир почти плоский – разрешаем начинать реку с любой небольшой возвышенности
+        // Минимальная высота для старта реки - чуть выше уровня воды
+        if (startHeight < 46.0f) {    // было 47.0f, теперь ещё ниже для плоского мира
             continue;
         }
         
@@ -323,11 +349,14 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
                 static_cast<int>(std::sin(angle) * step * 2.0f)
             );
             
-            if (next.x < 0 || next.x >= worldSize || next.y < 0 || next.y >= worldSize) {
+            // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+            int nextMapX = next.x + worldSize / 2;
+            int nextMapZ = next.y + worldSize / 2;
+            if (nextMapX < 0 || nextMapX >= worldSize || nextMapZ < 0 || nextMapZ >= worldSize) {
                 break;
             }
             
-            int nextIdx = next.x + next.y * worldSize;
+            int nextIdx = nextMapX + nextMapZ * worldSize;
             if (nextIdx >= 0 && nextIdx < static_cast<int>(heightMap.size())) {
                 float h = heightMap[nextIdx];
                 if (h < minHeight) {
@@ -337,8 +366,8 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
             }
         }
         
-        // Если нашли подходящую конечную точку
-        if (end != start && minHeight < startHeight - 10.0f) {
+        // ИСПРАВЛЕНО: если нашли конечную точку хотя бы немного ниже старта
+        if (end != start && minHeight < startHeight - 3.0f) {   // было -10.0f
             // Создаем реку как путь от start до end
             auto riverPath = std::make_unique<Pathfinding::Path>(
                 chunkManager, pathingUtils.get(),
@@ -353,25 +382,42 @@ void WorldBuilder::GenerateWaterFeatures(int numLakes, int numRivers) {
                 for (const auto& point : points) {
                     int px = static_cast<int>(point.x);
                     int pz = static_cast<int>(point.y);
-                    if (px >= 0 && px < worldSize && pz >= 0 && pz < worldSize) {
-                        int pidx = px + pz * worldSize;
+                    // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+                    int pmapX = px + worldSize / 2;
+                    int pmapZ = pz + worldSize / 2;
+                    if (pmapX >= 0 && pmapX < worldSize && pmapZ >= 0 && pmapZ < worldSize) {
+                        int pidx = pmapX + pmapZ * worldSize;
                         if (pidx >= 0 && pidx < static_cast<int>(waterMap.size())) {
-                            // Река имеет уровень воды немного ниже поверхности
+                            // ИСПРАВЛЕНО: река имеет уровень воды немного ниже поверхности
                             float surfaceH = heightMap[pidx];
-                            waterMap[pidx] = std::max(waterMap[pidx], surfaceH - 2.0f);
+                            float riverWater = surfaceH - 2.0f;
+                            
+                            // Стягиваем уровень рек к морю, чтобы они логично впадали в большой водоём
+                            const float targetSeaLevel = 45.0f;          // не забудь: если поменяешь waterLevel – обнови и тут
+                            riverWater = std::max(riverWater, targetSeaLevel - 1.0f);
+                            
+                            // Записываем итоговый уровень воды реки
+                            waterMap[pidx] = std::max(waterMap[pidx], riverWater);
                             
                             // Расширяем реку в стороны (ширина 3-5 единиц)
                             for (int dx = -2; dx <= 2; dx++) {
                                 for (int dz = -2; dz <= 2; dz++) {
                                     int nx = px + dx;
                                     int nz = pz + dz;
-                                    if (nx >= 0 && nx < worldSize && nz >= 0 && nz < worldSize) {
-                                        int nidx = nx + nz * worldSize;
+                                    // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+                                    int nmapX = nx + worldSize / 2;
+                                    int nmapZ = nz + worldSize / 2;
+                                    if (nmapX >= 0 && nmapX < worldSize && nmapZ >= 0 && nmapZ < worldSize) {
+                                        int nidx = nmapX + nmapZ * worldSize;
                                         if (nidx >= 0 && nidx < static_cast<int>(waterMap.size())) {
                                             float dist = std::sqrt(static_cast<float>(dx * dx + dz * dz));
                                             if (dist < 2.5f) {
+                                                // ИСПРАВЛЕНО: стягиваем уровень рек к морю
                                                 float surfaceHN = heightMap[nidx];
-                                                waterMap[nidx] = std::max(waterMap[nidx], surfaceHN - 2.0f);
+                                                float riverWaterN = surfaceHN - 2.0f;
+                                                const float targetSeaLevel = 45.0f;
+                                                riverWaterN = std::max(riverWaterN, targetSeaLevel - 1.0f);
+                                                waterMap[nidx] = std::max(waterMap[nidx], riverWaterN);
                                             }
                                         }
                                     }
@@ -462,20 +508,26 @@ glm::ivec2 WorldBuilder::GetRandomWorldPosition() {
         return glm::ivec2(0, 0);
     }
     
-    // Оставляем отступ от краев
+    // ИСПРАВЛЕНО: генерируем позиции по всему миру, включая отрицательные координаты
+    // Мир простирается от -worldSize/2 до +worldSize/2, но waterMap индексируется от 0 до worldSize-1
+    // Поэтому генерируем позиции в диапазоне от -worldSize/2 до +worldSize/2
+    int halfSize = worldSize / 2;
     int margin = worldSize / 10;
-    int x = margin + rand->Range(worldSize - 2 * margin);
-    int y = margin + rand->Range(worldSize - 2 * margin);
+    int x = -halfSize + margin + rand->Range(worldSize - 2 * margin);
+    int y = -halfSize + margin + rand->Range(worldSize - 2 * margin);
     return glm::ivec2(x, y);
 }
 
 bool WorldBuilder::IsValidPositionForRoad(const glm::ivec2& pos) const {
-    if (pos.x < 0 || pos.x >= worldSize || pos.y < 0 || pos.y >= worldSize) {
+    // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+    int mapX = pos.x + worldSize / 2;
+    int mapZ = pos.y + worldSize / 2;
+    if (mapX < 0 || mapX >= worldSize || mapZ < 0 || mapZ >= worldSize) {
         return false;
     }
     
     // Проверяем, что позиция не в воде (упрощенная проверка)
-    int index = pos.x + pos.y * worldSize;
+    int index = mapX + mapZ * worldSize;
     if (index >= 0 && index < static_cast<int>(waterMap.size())) {
         if (waterMap[index] > 0.0f) {
             return false;
@@ -486,21 +538,35 @@ bool WorldBuilder::IsValidPositionForRoad(const glm::ivec2& pos) const {
 }
 
 bool WorldBuilder::IsValidPositionForWater(const glm::ivec2& pos) const {
-    if (pos.x < 0 || pos.x >= worldSize || pos.y < 0 || pos.y >= worldSize) {
+    // ИСПРАВЛЕНО: преобразуем мировые координаты в индексы карты
+    int mapX = pos.x + worldSize / 2;
+    int mapZ = pos.y + worldSize / 2;
+    if (mapX < 0 || mapX >= worldSize || mapZ < 0 || mapZ >= worldSize) {
         return false;
     }
     
-    // Проверяем, что позиция не слишком высокая (озера в низинах)
-    int index = pos.x + pos.y * worldSize;
-    if (index >= 0 && index < static_cast<int>(heightMap.size())) {
-        float height = heightMap[index];
-        // Озера только в низинах (ниже среднего уровня)
-        if (height > 60.0f) { // Примерный порог
-            return false;
-        }
-    }
+    // ИСПРАВЛЕНО: в плоском мире озёра могут быть везде, где есть небольшая впадина
+    // Убираем проверку на высоту - в плоском мире нет высоких гор
+    // int index = mapX + mapZ * worldSize;
+    // if (index >= 0 && index < static_cast<int>(heightMap.size())) {
+    //     float height = heightMap[index];
+    //     // Озера только в низинах (ниже среднего уровня)
+    //     if (height > 60.0f) { // Примерный порог
+    //         return false;
+    //     }
+    // }
     
     return true;
+}
+
+glm::ivec2 WorldBuilder::WorldToGrid(const glm::ivec2& world) const {
+    int half = worldSize / 2;
+    return glm::ivec2(world.x + half, world.y + half);
+}
+
+glm::ivec2 WorldBuilder::GridToWorld(const glm::ivec2& grid) const {
+    int half = worldSize / 2;
+    return glm::ivec2(grid.x - half, grid.y - half);
 }
 
 void WorldBuilder::Clear() {

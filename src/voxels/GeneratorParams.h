@@ -9,8 +9,8 @@ struct GeneratorParams {
 	float lacunarity = 2.0f;
 	float gain = 0.5f;
 	float baseHeight = 50.0f;          // Базовый уровень земли
-	float heightVariation = 5.0f;      // ИСПРАВЛЕНО: сильно уменьшено с 10 до 5 для почти идеально плоского мира
-	float waterLevel = 45.0f;          // ИСПРАВЛЕНО: установлено на 45 как запрошено
+	float heightVariation = 1.0f;      // ИСПРАВЛЕНО: почти идеально плоский мир - только мягкие волны (было 3.0f)
+	float waterLevel = 45.0f;          // Уровень воды
 	int64_t seed = 1337;
 };
 

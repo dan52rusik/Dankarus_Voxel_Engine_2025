@@ -32,11 +32,14 @@ public:
 	MCChunk(int cx, int cy, int cz);
 	~MCChunk();
 	
-	void generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation);
+	void generate(OpenSimplex3D& noise, float baseFreq, int octaves, float lacunarity, float gain, float baseHeight, float heightVariation, bool buildMesh = true);
 	
 	// Оптимизированная генерация с использованием callback для вычисления высоты поверхности
 	// Вычисляет высоту один раз на (x,z), а не в цикле по y - в ~32 раза быстрее
-	void generate(std::function<float(float, float)> evalSurfaceHeight);
+	void generate(std::function<float(float, float)> evalSurfaceHeight, bool buildMesh = true);
+	
+	// Построить меш террейна из сохранённого поля плотности (если ещё не построен)
+	void buildTerrainMesh();
 	
 	// Система воксельных блоков
 	voxel* voxels; // Массив вокселей для блоков

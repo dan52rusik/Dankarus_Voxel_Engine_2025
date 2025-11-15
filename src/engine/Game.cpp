@@ -444,9 +444,10 @@ void Game::updateWorld(float delta) {
         lightingSystem->updateLighting(camera->position, engine->renderDistance);
     }
     
-    // Пересобираем меши вокселей для измененных чанков (с бюджетом)
+    // ОПТИМИЗАЦИЯ: пересобираем меши только для видимых чанков с ограничением бюджета
+    // Используем getVisibleChunks() - это гарантирует, что рендерим только зону видимости
     const auto& visibleChunks = chunkManager->getVisibleChunks();
-    const int meshBudget = 2; // чанка за кадр
+    const int meshBudget = 2; // максимум 2 чанка пересобрать за кадр (предотвращает лаги)
     int built = 0;
     
     // Обрабатываем очередь пересборки мешей
@@ -879,6 +880,7 @@ void Game::renderWorld() {
         texture->bind();
         waterShader->uniform1i("u_texture0", 0);
         
+        // ОПТИМИЗАЦИЯ: рендерим воду только для видимых чанков (из getVisibleChunks())
         for (MCChunk* chunk : visibleChunks) {
             if (chunk->waterMeshModified) {
                 // Удаляем старый меш воды, если он есть

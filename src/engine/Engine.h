@@ -72,7 +72,10 @@ public:
 	float baseHeight = 40.0f;
 	float heightVariation = 240.0f;  // 220-260 для выразительных долин/хребтов
     int seed = 1337;
-    int renderDistance = 3;
+    // ОПТИМИЗАЦИЯ: renderDistance определяет радиус видимости чанков
+    // Для чанка 32×32: renderDistance=6 → ~192м видимости, renderDistance=8 → ~256м
+    // Рекомендуется: 6-8 для баланса между производительностью и видимостью
+    int renderDistance = 6;
     float speed = 5.0f;
     
     // Состояние
